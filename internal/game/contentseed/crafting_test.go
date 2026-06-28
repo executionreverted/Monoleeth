@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"gameproject/internal/game/content"
 	"gameproject/internal/game/world"
 )
 
@@ -38,7 +39,7 @@ func TestSeedCraftRecipeRowsEmitCraftDurationMSOnly(t *testing.T) {
 	}
 }
 
-func TestBuildMVPSnapshotRuntimeRowsAvoidOriginalReferenceTerms(t *testing.T) {
+func TestBuildMVPSnapshotRuntimeRowsCarryLegacyBalanceTerms(t *testing.T) {
 	snapshot, err := BuildMVPSnapshot(world.WorldID("world-1"))
 	if err != nil {
 		t.Fatalf("BuildMVPSnapshot() error = %v, want nil", err)
@@ -48,45 +49,48 @@ func TestBuildMVPSnapshotRuntimeRowsAvoidOriginalReferenceTerms(t *testing.T) {
 		t.Fatalf("marshal snapshot: %v", err)
 	}
 	text := strings.ToLower(string(raw))
-	for _, forbidden := range forbiddenSnapshotReferenceTerms() {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("snapshot contains forbidden reference term %q", forbidden)
+	for _, expected := range []string{
+		"content_old_darkorbit_2009_seed_v1",
+		"phoenix",
+		"lf-1",
+		"sg3n-a01",
+		"prometium",
+		"terbium",
+		"endurium",
+		"prometid",
+		"duranium",
+		"promerium",
+		"xenomit",
+		"lordakia",
+		"saimon",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("snapshot missing expected legacy balance term %q", expected)
 		}
 	}
 }
 
-func forbiddenSnapshotReferenceTerms() []string {
-	return []string{
-		"darkorbit",
-		"dark orbit",
-		"streuner",
-		"lordakia",
-		"mordon",
-		"saimon",
-		"devolarium",
-		"sibelon",
-		"kristallon",
-		"cubikon",
-		"protegit",
-		"phoenix",
-		"yamato",
-		"nostromo",
-		"leonov",
-		"piranha",
-		"goliath",
-		"vengeance",
-		"bigboy",
-		"citadel",
-		"aegis",
-		"iris",
-		"flax",
-		"lf-1",
-		"lf-2",
-		"lf-3",
-		"lf-4",
-		"mp-1",
-		"bo-1",
-		"bo-2",
-		"g3n",
+func TestBuildMVPSnapshotIncludesServerRuleRows(t *testing.T) {
+	snapshot, err := BuildMVPSnapshot(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("BuildMVPSnapshot() error = %v, want nil", err)
+	}
+	requireSingleSeedRow(t, "scanner config", snapshot.ScannerConfigs, "scanner_config")
+	requireSingleSeedRow(t, "starter config", snapshot.StarterConfigs, "starter_config")
+	requireSingleSeedRow(t, "route policy", snapshot.RoutePolicies, "route_policy")
+	requireSingleSeedRow(t, "production rules", snapshot.ProductionRules, "production_rules")
+	requireSingleSeedRow(t, "combat rules", snapshot.CombatRules, "combat_rules")
+}
+
+func requireSingleSeedRow(t *testing.T, label string, rows []content.SnapshotRow, contentID string) {
+	t.Helper()
+	if len(rows) != 1 {
+		t.Fatalf("%s rows = %d, want 1", label, len(rows))
+	}
+	if string(rows[0].ContentID) != contentID {
+		t.Fatalf("%s content_id = %q, want %q", label, rows[0].ContentID, contentID)
+	}
+	if len(rows[0].DataJSON) == 0 {
+		t.Fatalf("%s data_json empty", label)
 	}
 }

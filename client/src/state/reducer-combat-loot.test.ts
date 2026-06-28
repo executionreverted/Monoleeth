@@ -323,7 +323,7 @@ describe('reduceClientState', () => {
         payload: {
           ship: {
             active_ship_id: 'starter',
-            display_name: 'Sparrow',
+            display_name: 'Phoenix',
             hull: 44,
             max_hull: 100,
             shield: 12,
@@ -348,7 +348,7 @@ describe('reduceClientState', () => {
           disabled_reason: 'combat',
           ship: {
             active_ship_id: 'starter',
-            display_name: 'Sparrow',
+            display_name: 'Phoenix',
             hull: 0,
             max_hull: 100,
             shield: 0,

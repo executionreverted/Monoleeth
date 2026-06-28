@@ -91,7 +91,7 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 				if len(payload.Inventory.Stackable) != 0 ||
 					len(payload.Inventory.Instances) != 3 ||
 					payload.Inventory.Counts.EquippedInstances != 2 ||
-					payload.Cargo.Capacity != 50 {
+					payload.Cargo.Capacity != 100 {
 					t.Fatalf("inventory payload = %+v cargo=%+v, want starter modules and cargo capacity", payload.Inventory, payload.Cargo)
 				}
 			case "hangar":
@@ -126,7 +126,7 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 					t.Fatalf("decode stats snapshot: %v", err)
 				}
 				if payload.Stats.RadarRange != defaultRadarRange ||
-					payload.Stats.CargoCapacity != 50 ||
+					payload.Stats.CargoCapacity != 100 ||
 					payload.Stats.LootPickupRange != runtimeLootPickupRange ||
 					payload.Stats.BasicLaserEnergyCost != 8 ||
 					payload.Stats.BasicLaserCooldownMS != 1200 {
@@ -164,15 +164,14 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 	}
 	var pickupPayload struct {
 		Inventory inventorySnapshotPayload `json:"inventory"`
+		Cargo     cargoSnapshotPayload     `json:"cargo"`
 	}
 	if err := json.Unmarshal(pickup.Payload, &pickupPayload); err != nil {
 		t.Fatalf("decode pickup inventory: %v", err)
 	}
-	if len(pickupPayload.Inventory.Stackable) != 1 ||
-		pickupPayload.Inventory.Stackable[0].ItemID != "raw_ore" ||
-		pickupPayload.Inventory.Stackable[0].Quantity != 3 ||
-		pickupPayload.Inventory.Stackable[0].Location != economy.LocationKindShipCargo.String() {
-		t.Fatalf("pickup inventory = %+v, want real raw ore in ship cargo", pickupPayload.Inventory)
+	if len(pickupPayload.Inventory.Stackable) != 0 ||
+		!cargoSnapshotHasItem(pickupPayload.Cargo, "prometium", 20) {
+		t.Fatalf("pickup inventory = %+v cargo = %+v, want prometium in ship cargo only", pickupPayload.Inventory, pickupPayload.Cargo)
 	}
 }
 
@@ -578,7 +577,7 @@ func TestShopCatalogUsesServerOwnedGameCatalog(t *testing.T) {
 	if len(payload.Shop.Products) < 6 {
 		t.Fatalf("shop products = %+v, want broad seed coverage", payload.Shop.Products)
 	}
-	seenPrism := false
+	seenLF1 := false
 	for _, product := range payload.Shop.Products {
 		if product.DisplayName == "" || product.DisplayName == product.ProductID || strings.Contains(product.DisplayName, "_") {
 			t.Fatalf("shop product has raw display name: %+v", product)
@@ -586,12 +585,12 @@ func TestShopCatalogUsesServerOwnedGameCatalog(t *testing.T) {
 		if product.CategoryID == "" || product.ArtKey == "" || product.Price.Currency == "" {
 			t.Fatalf("shop product missing display/category/price metadata: %+v", product)
 		}
-		if product.DisplayName == "Prism Lance I" {
-			seenPrism = true
+		if product.DisplayName == "LF-1" {
+			seenLF1 = true
 		}
 	}
-	if !seenPrism {
-		t.Fatalf("shop products = %+v, missing Prism Lance I weapon product", payload.Shop.Products)
+	if !seenLF1 {
+		t.Fatalf("shop products = %+v, missing LF-1 weapon product", payload.Shop.Products)
 	}
 
 	writeText(t, conn, `{"request_id":"request-shop-catalog-spoof","op":"shop.catalog","payload":{"stock_remaining":99},"client_seq":2,"v":1}`)
@@ -608,8 +607,8 @@ func TestShopBuyProductDebitsWalletAndGrantsServerCatalogProduct(t *testing.T) {
 	defer conn.CloseNow()
 	readBootstrapEvents(t, conn)
 
-	beforeCount := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), "laser_alpha_t1")
-	writeText(t, conn, `{"request_id":"request-shop-buy-laser","op":"shop.buy_product","payload":{"product_id":"product_module_laser_alpha_t1","quantity":1},"client_seq":1,"v":1}`)
+	beforeCount := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), "scanner_t1")
+	writeText(t, conn, `{"request_id":"request-shop-buy-scanner","op":"shop.buy_product","payload":{"product_id":"product_module_scanner_t1","quantity":1},"client_seq":1,"v":1}`)
 	response := readResponse(t, conn)
 	if !response.OK {
 		t.Fatalf("shop buy response = %+v, want success", response)
@@ -619,24 +618,24 @@ func TestShopBuyProductDebitsWalletAndGrantsServerCatalogProduct(t *testing.T) {
 	if err := json.Unmarshal(response.Payload, &payload); err != nil {
 		t.Fatalf("decode shop buy: %v", err)
 	}
-	if !payload.Accepted || payload.Product.ProductID != "product_module_laser_alpha_t1" || payload.Quantity != 1 || payload.ServerTotal != 450 {
-		t.Fatalf("shop buy payload = %+v, want accepted laser at server price", payload)
+	if !payload.Accepted || payload.Product.ProductID != "product_module_scanner_t1" || payload.Quantity != 1 || payload.ServerTotal != 360 {
+		t.Fatalf("shop buy payload = %+v, want accepted scanner at server price", payload)
 	}
-	if payload.Wallet.Credits != starterWalletCredits-450 {
-		t.Fatalf("wallet credits = %d, want %d", payload.Wallet.Credits, starterWalletCredits-450)
+	if payload.Wallet.Credits != starterWalletCredits-360 {
+		t.Fatalf("wallet credits = %d, want %d", payload.Wallet.Credits, starterWalletCredits-360)
 	}
 	if payload.Inventory == nil {
 		t.Fatalf("shop buy inventory snapshot missing")
 	}
-	afterCount := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), "laser_alpha_t1")
+	afterCount := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), "scanner_t1")
 	if afterCount != beforeCount+1 {
-		t.Fatalf("laser instances = %d, want %d after shop buy", afterCount, beforeCount+1)
+		t.Fatalf("scanner instances = %d, want %d after shop buy", afterCount, beforeCount+1)
 	}
-	if !inventorySnapshotHasInstance(*payload.Inventory, "laser_alpha_t1") {
-		t.Fatalf("inventory snapshot missing laser_alpha_t1 instance: %+v", payload.Inventory.Instances)
+	if !inventorySnapshotHasInstance(*payload.Inventory, "scanner_t1") {
+		t.Fatalf("inventory snapshot missing scanner_t1 instance: %+v", payload.Inventory.Instances)
 	}
 
-	writeText(t, conn, `{"request_id":"request-shop-buy-spoof","op":"shop.buy_product","payload":{"product_id":"product_module_laser_alpha_t1","quantity":1,"price":{"amount":1},"stock_remaining":99},"client_seq":2,"v":1}`)
+	writeText(t, conn, `{"request_id":"request-shop-buy-spoof","op":"shop.buy_product","payload":{"product_id":"product_module_scanner_t1","quantity":1,"price":{"amount":1},"stock_remaining":99},"client_seq":2,"v":1}`)
 	spoof := readErrorSkippingEvents(t, conn)
 	if spoof.Error.Code != foundation.CodeInvalidPayload {
 		t.Fatalf("spoofed shop buy error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
@@ -649,25 +648,25 @@ func TestShopBuyProductRejectsInsufficientFundsBeforeGrant(t *testing.T) {
 	defer conn.CloseNow()
 	readBootstrapEvents(t, conn)
 
-	for index := 1; index <= 2; index++ {
-		writeText(t, conn, fmt.Sprintf(`{"request_id":"request-shop-buy-laser-%d","op":"shop.buy_product","payload":{"product_id":"product_module_laser_alpha_t1","quantity":1},"client_seq":%d,"v":1}`, index, index))
+	for index := 1; index <= 3; index++ {
+		writeText(t, conn, fmt.Sprintf(`{"request_id":"request-shop-buy-scanner-%d","op":"shop.buy_product","payload":{"product_id":"product_module_scanner_t1","quantity":1},"client_seq":%d,"v":1}`, index, index))
 		response := readResponseSkippingEvents(t, conn)
 		if !response.OK {
 			t.Fatalf("shop buy %d response = %+v, want success", index, response)
 		}
 	}
-	beforeCount := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), "laser_alpha_t1")
-	writeText(t, conn, `{"request_id":"request-shop-buy-laser-no-funds","op":"shop.buy_product","payload":{"product_id":"product_module_laser_alpha_t1","quantity":1},"client_seq":3,"v":1}`)
+	beforeCount := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), "scanner_t1")
+	writeText(t, conn, `{"request_id":"request-shop-buy-scanner-no-funds","op":"shop.buy_product","payload":{"product_id":"product_module_scanner_t1","quantity":1},"client_seq":4,"v":1}`)
 	rejected := readErrorSkippingEvents(t, conn)
 	if rejected.Error.Code != foundation.CodeNotEnoughFunds {
 		t.Fatalf("insufficient funds error = %+v, want %s", rejected.Error, foundation.CodeNotEnoughFunds)
 	}
-	afterCount := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), "laser_alpha_t1")
+	afterCount := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), "scanner_t1")
 	if afterCount != beforeCount {
-		t.Fatalf("laser instances after failed buy = %d, want unchanged %d", afterCount, beforeCount)
+		t.Fatalf("scanner instances after failed buy = %d, want unchanged %d", afterCount, beforeCount)
 	}
-	if credits := runtimeWalletCredits(t, gameServer.runtime); credits != 300 {
-		t.Fatalf("wallet credits after failed buy = %d, want 300", credits)
+	if credits := runtimeWalletCredits(t, gameServer.runtime); credits != 120 {
+		t.Fatalf("wallet credits after failed buy = %d, want 120", credits)
 	}
 }
 
@@ -678,6 +677,15 @@ func inventoryStackQuantity(inventory inventorySnapshotPayload, itemID string, l
 		}
 	}
 	return 0
+}
+
+func cargoSnapshotHasItem(cargo cargoSnapshotPayload, itemID string, quantity int64) bool {
+	for _, item := range cargo.Items {
+		if item.ItemID == itemID && item.Quantity == quantity {
+			return true
+		}
+	}
+	return false
 }
 
 func assertCraftingPayloadOmitsInternals(t *testing.T, label string, payload []byte) {

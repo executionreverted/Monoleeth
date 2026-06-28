@@ -73,20 +73,20 @@ func TestDefaultGameplayContentStarterBalanceProfileIsCoherent(t *testing.T) {
 		bundle.Starter.BalanceProfileNote != DefaultStarterBalanceProfileNote {
 		t.Fatalf("starter balance profile = %q/%q, want default profile metadata", bundle.Starter.BalanceProfileID, bundle.Starter.BalanceProfileNote)
 	}
-	if bundle.Starter.ShipDisplayName != "Sparrow" {
-		t.Fatalf("starter ship display = %q, want Sparrow", bundle.Starter.ShipDisplayName)
+	if bundle.Starter.ShipDisplayName != "Phoenix" {
+		t.Fatalf("starter ship display = %q, want Phoenix", bundle.Starter.ShipDisplayName)
 	}
 	laser, ok := bundle.Modules.Lookup("laser_alpha_t1")
 	if !ok {
 		t.Fatal("laser_alpha_t1 missing")
 	}
-	if laser.Name != "Prism Lance I" ||
-		moduleStatValue(t, laser, modules.StatWeaponDamage) != 12 ||
+	if laser.Name != "LF-1" ||
+		moduleStatValue(t, laser, modules.StatWeaponDamage) != 40 ||
 		moduleStatValue(t, laser, modules.StatWeaponRange) != 650 ||
 		laser.Energy.ActivationCost != 8 ||
 		len(laser.Cooldowns) != 1 ||
 		laser.Cooldowns[0].DurationMS != 1200 {
-		t.Fatalf("starter laser = %+v, want coherent Prism Lance I baseline", laser)
+		t.Fatalf("starter laser = %+v, want LF-1 baseline", laser)
 	}
 
 	starterMap, ok := bundle.Maps.Get(worldmaps.StarterMapID)
@@ -94,36 +94,33 @@ func TestDefaultGameplayContentStarterBalanceProfileIsCoherent(t *testing.T) {
 		t.Fatal("starter map missing")
 	}
 	warden := findContentNPCStatTemplate(t, starterMap, "training_drone")
-	if warden.LabelKey != "npc.warden_drone" ||
-		warden.HPMax != 34 ||
-		warden.ShieldMax != 4 ||
-		warden.WeaponDamage != 1 ||
+	if warden.LabelKey != "npc.lordakia" ||
+		warden.HPMax != 2000 ||
+		warden.ShieldMax != 2000 ||
+		warden.WeaponDamage != 80 ||
 		warden.WeaponRange != 120 {
-		t.Fatalf("starter NPC = %+v, want renamed low-risk Warden tuning", warden)
+		t.Fatalf("starter NPC = %+v, want Lordakia tuning", warden)
 	}
 	raiderMap, ok := bundle.Maps.ByPublicKey("1-3")
 	if !ok {
 		t.Fatal("map 1-3 missing")
 	}
 	raider := findContentNPCStatTemplate(t, raiderMap, "border_raider_drone")
-	if raider.LabelKey != "npc.raider_drone" ||
-		raider.HPMax != 72 ||
-		raider.ShieldMax != 22 ||
-		raider.WeaponDamage != 7 ||
+	if raider.LabelKey != "npc.saimon" ||
+		raider.HPMax != 6000 ||
+		raider.ShieldMax != 3000 ||
+		raider.WeaponDamage != 200 ||
 		raider.WeaponCooldown != 1800*time.Millisecond {
-		t.Fatalf("raider NPC = %+v, want renamed medium-risk Raider tuning", raider)
+		t.Fatalf("raider NPC = %+v, want Saimon tuning", raider)
 	}
 
 	trainingLoot := bundle.LootTables[TrainingDroneSalvageLootTableID]
-	if !lootTableHasRow(trainingLoot, "raw_ore", 3, 3, 1) ||
-		!lootTableHasRow(trainingLoot, "iron_ore", 2, 4, 0.7) ||
-		!lootTableHasRow(trainingLoot, "carbon_shards", 1, 2, 0.35) {
-		t.Fatalf("training loot rows = %+v, want smoke drop plus starter craft inputs", trainingLoot.Rows)
+	if !lootTableHasRow(trainingLoot, "prometium", 20, 20, 1) ||
+		!lootTableHasRow(trainingLoot, "terbium", 20, 20, 1) ||
+		!lootTableHasRow(trainingLoot, "endurium", 20, 20, 1) {
+		t.Fatalf("training loot rows = %+v, want Lordakia metal drops", trainingLoot.Rows)
 	}
 	for _, productID := range []catalog.ShopProductID{
-		"product_ferrite_ore",
-		"product_iron_ore",
-		"product_carbon_shards",
 		"product_laser_lens",
 		"product_energy_cell",
 		"product_scanner_circuit",
@@ -146,11 +143,28 @@ func TestDefaultGameplayContentStarterBalanceProfileIsCoherent(t *testing.T) {
 	}
 }
 
-func TestDefaultGameplayContentRuntimeSeedNamesAvoidOriginalReferenceTerms(t *testing.T) {
+func TestDefaultGameplayContentUsesOldDarkOrbitBalanceNamesTemporarily(t *testing.T) {
 	text := strings.ToLower(runtimeSeedSearchText(validBundle(t)))
-	for _, forbidden := range forbiddenOriginalReferenceTerms() {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("runtime seed contains forbidden reference term %q in %q", forbidden, text)
+	for _, expected := range []string{
+		"old_darkorbit_2009_balance_v1",
+		"phoenix",
+		"goliath k2",
+		"vengeance",
+		"bigboy",
+		"lf-1",
+		"sg3n-a01",
+		"lordakia",
+		"saimon",
+		"prometium",
+		"terbium",
+		"endurium",
+		"prometid",
+		"duranium",
+		"promerium",
+		"xenomit",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("runtime seed missing expected legacy balance term %q in %q", expected, text)
 		}
 	}
 }
@@ -266,7 +280,7 @@ func TestGameplayContentRejectsInvalidCombatDeathZone(t *testing.T) {
 
 func TestGameplayContentRejectsLootRowUnknownItem(t *testing.T) {
 	bundle := validBundle(t)
-	delete(bundle.Items, "raw_ore")
+	delete(bundle.Items, "prometium")
 
 	err := bundle.Validate()
 	if !errors.Is(err, ErrUnknownContentItem) {
@@ -358,8 +372,8 @@ func TestGameplayContentRuntimeItemsAndLootTablesAreCloned(t *testing.T) {
 	if _, ok := bundle.Items["raw_ore"]; !ok {
 		t.Fatal("mutating returned items changed bundle")
 	}
-	if got := bundle.LootTables[TrainingDroneSalvageLootTableID].Rows[0].MinQuantity; got != 3 {
-		t.Fatalf("bundle loot row min quantity = %d, want 3", got)
+	if got := bundle.LootTables[TrainingDroneSalvageLootTableID].Rows[0].MinQuantity; got != 20 {
+		t.Fatalf("bundle loot row min quantity = %d, want 20", got)
 	}
 }
 
@@ -504,42 +518,6 @@ func runtimeSeedSearchText(bundle GameplayContent) string {
 		}
 	}
 	return builder.String()
-}
-
-func forbiddenOriginalReferenceTerms() []string {
-	return []string{
-		"darkorbit",
-		"dark orbit",
-		"streuner",
-		"lordakia",
-		"mordon",
-		"saimon",
-		"devolarium",
-		"sibelon",
-		"kristallon",
-		"cubikon",
-		"protegit",
-		"phoenix",
-		"yamato",
-		"nostromo",
-		"leonov",
-		"piranha",
-		"goliath",
-		"vengeance",
-		"bigboy",
-		"citadel",
-		"aegis",
-		"iris",
-		"flax",
-		"lf-1",
-		"lf-2",
-		"lf-3",
-		"lf-4",
-		"mp-1",
-		"bo-1",
-		"bo-2",
-		"g3n",
-	}
 }
 
 func TestGameplayContentRejectsLootTableSourceMismatch(t *testing.T) {

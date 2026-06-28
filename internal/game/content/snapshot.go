@@ -33,6 +33,11 @@ type Snapshot struct {
 	ProductionBuildings []SnapshotRow `json:"production_buildings"`
 	QuestTemplates      []SnapshotRow `json:"quest_templates"`
 	QuestRewardTables   []SnapshotRow `json:"quest_reward_tables"`
+	ScannerConfigs      []SnapshotRow `json:"scanner_configs"`
+	StarterConfigs      []SnapshotRow `json:"starter_configs"`
+	RoutePolicies       []SnapshotRow `json:"route_policies"`
+	ProductionRules     []SnapshotRow `json:"production_rules"`
+	CombatRules         []SnapshotRow `json:"combat_rules"`
 }
 
 type SnapshotRow struct {
@@ -77,6 +82,11 @@ func (snapshot Snapshot) Groups() []SnapshotGroup {
 		{Type: ContentTypeProductionBuilding, Rows: snapshot.ProductionBuildings},
 		{Type: ContentTypeQuestTemplate, Rows: snapshot.QuestTemplates},
 		{Type: ContentTypeQuestRewardTable, Rows: snapshot.QuestRewardTables},
+		{Type: ContentTypeScannerConfig, Rows: snapshot.ScannerConfigs},
+		{Type: ContentTypeStarterConfig, Rows: snapshot.StarterConfigs},
+		{Type: ContentTypeRoutePolicy, Rows: snapshot.RoutePolicies},
+		{Type: ContentTypeProductionRules, Rows: snapshot.ProductionRules},
+		{Type: ContentTypeCombatRules, Rows: snapshot.CombatRules},
 	}
 }
 
@@ -118,6 +128,16 @@ func (snapshot *Snapshot) SetRows(contentType ContentType, rows []SnapshotRow) e
 		snapshot.QuestTemplates = cloned
 	case ContentTypeQuestRewardTable:
 		snapshot.QuestRewardTables = cloned
+	case ContentTypeScannerConfig:
+		snapshot.ScannerConfigs = cloned
+	case ContentTypeStarterConfig:
+		snapshot.StarterConfigs = cloned
+	case ContentTypeRoutePolicy:
+		snapshot.RoutePolicies = cloned
+	case ContentTypeProductionRules:
+		snapshot.ProductionRules = cloned
+	case ContentTypeCombatRules:
+		snapshot.CombatRules = cloned
 	default:
 		return fmt.Errorf("%s: %w", contentType, ErrUnknownContentType)
 	}

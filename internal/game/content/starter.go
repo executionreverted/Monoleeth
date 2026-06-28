@@ -15,7 +15,7 @@ import (
 
 const (
 	DefaultStarterShipID              foundation.ShipID = ships.ShipIDStarter
-	DefaultStarterShipDisplayName                       = "Sparrow"
+	DefaultStarterShipDisplayName                       = "Phoenix"
 	DefaultStarterScannerItemID       foundation.ItemID = "scanner_t1"
 	DefaultStarterScannerModuleID     foundation.ItemID = "scanner_t1"
 	DefaultStarterScannerScanPower                      = 500

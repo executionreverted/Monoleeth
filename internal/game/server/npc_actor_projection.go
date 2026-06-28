@@ -175,11 +175,11 @@ func (runtime *Runtime) npcVisibilityInputsLocked(instance *mapInstance, entity 
 func (runtime *Runtime) publicNPCMetadataLocked(instance *mapInstance, entity world.Entity) ([]aoi.StatusFlag, *aoi.EntityDisplay, *aoi.EntityCombatStatus) {
 	flags := []aoi.StatusFlag{"hostile"}
 	display := &aoi.EntityDisplay{Label: "NPC", Disposition: "hostile"}
-	record, _, err := runtime.npcSpawnRecordAndTemplateLocked(instance, entity.ID)
+	record, template, err := runtime.npcSpawnRecordAndTemplateLocked(instance, entity.ID)
 	if err != nil {
 		return flags, display, nil
 	}
-	display.Label = displayLabelForNPCType(record.NPCType)
+	display.Label = displayLabelForNPCTemplate(record.NPCType, template)
 	combatStatus := runtime.entityCombatStatusLocked(entity.ID)
 	actor, err := runtime.upsertNPCCombatActorProjectionLocked(instance, entity)
 	if err == nil {
@@ -191,11 +191,21 @@ func (runtime *Runtime) publicNPCMetadataLocked(instance *mapInstance, entity wo
 	return flags, display, combatStatus
 }
 
-func displayLabelForNPCType(npcType string) string {
+func displayLabelForNPCTemplate(npcType string, template worldmaps.NPCStatTemplate) string {
+	switch template.LabelKey {
+	case "npc.lordakia":
+		return "Lordakia"
+	case "npc.mordon":
+		return "Mordon"
+	case "npc.streuner":
+		return "Streuner"
+	case "npc.saimon":
+		return "Saimon"
+	}
 	switch npcType {
-	case trainingNPCType:
-		return "Training Drone"
-	default:
+	case "":
 		return "NPC"
+	default:
+		return npcType
 	}
 }

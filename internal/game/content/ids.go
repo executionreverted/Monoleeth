@@ -32,6 +32,11 @@ const (
 	ContentTypeProductionBuilding ContentType = "production_building"
 	ContentTypeQuestTemplate      ContentType = "quest_template"
 	ContentTypeQuestRewardTable   ContentType = "quest_reward_table"
+	ContentTypeScannerConfig      ContentType = "scanner_config"
+	ContentTypeStarterConfig      ContentType = "starter_config"
+	ContentTypeRoutePolicy        ContentType = "route_policy"
+	ContentTypeProductionRules    ContentType = "production_rules"
+	ContentTypeCombatRules        ContentType = "combat_rules"
 )
 
 func AllContentTypes() []ContentType {
@@ -52,6 +57,11 @@ func AllContentTypes() []ContentType {
 		ContentTypeProductionBuilding,
 		ContentTypeQuestTemplate,
 		ContentTypeQuestRewardTable,
+		ContentTypeScannerConfig,
+		ContentTypeStarterConfig,
+		ContentTypeRoutePolicy,
+		ContentTypeProductionRules,
+		ContentTypeCombatRules,
 	}
 }
 

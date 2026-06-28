@@ -22,8 +22,22 @@ const (
 	CoordinateScrollItemID          = foundation.ItemID("planet_coordinate_scroll")
 )
 
-// GameplayContent is the canonical static content bundle used by the playtest
-// runtime. The same shape can later be loaded from a published DB/CMS revision.
+var cargoResourceItemIDs = map[foundation.ItemID]struct{}{
+	"raw_ore":       {},
+	"iron_ore":      {},
+	"carbon_shards": {},
+	"prometium":     {},
+	"terbium":       {},
+	"endurium":      {},
+	"prometid":      {},
+	"duranium":      {},
+	"promerium":     {},
+	"xenomit":       {},
+}
+
+// GameplayContent is the validated content shape assembled from published DB
+// rows at runtime. DefaultGameplayContent builds the first-run seed/test bundle
+// in the same shape.
 type GameplayContent struct {
 	Items      map[foundation.ItemID]economy.ItemDefinition
 	LootTables map[string]loot.LootTable
@@ -94,8 +108,13 @@ func DefaultGameplayContent(worldID world.WorldID) (GameplayContent, error) {
 	return bundle, nil
 }
 
+func IsCargoResourceItemID(itemID foundation.ItemID) bool {
+	_, ok := cargoResourceItemIDs[itemID]
+	return ok
+}
+
 func defaultItemAndLootContent(moduleCatalog modules.Catalog) (map[foundation.ItemID]economy.ItemDefinition, map[string]loot.LootTable, error) {
-	rawOre, err := StackableItemDefinition("raw_ore", "Raw Ore")
+	rawOre, err := StackableItemDefinition("raw_ore", "Prometium")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -107,7 +126,7 @@ func defaultItemAndLootContent(moduleCatalog modules.Catalog) (map[foundation.It
 	if err != nil {
 		return nil, nil, err
 	}
-	carbonShards, err := StackableItemDefinition("carbon_shards", "Carbon Shards")
+	carbonShards, err := StackableItemDefinition("carbon_shards", "Xenomit")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -118,13 +137,20 @@ func defaultItemAndLootContent(moduleCatalog modules.Catalog) (map[foundation.It
 		carbonShards.ItemID:     carbonShards,
 	}
 	materialNames := map[foundation.ItemID]string{
-		"iron_ore":        "Iron Ore",
+		"iron_ore":        "Endurium",
 		"laser_lens":      "Laser Lens",
 		"energy_cell":     "Energy Cell",
 		"scanner_circuit": "Scanner Circuit",
-		"refined_alloy":   "Refined Alloy",
+		"refined_alloy":   "Prometid",
 		"warp_coil":       "Warp Coil",
 		"helium_dust":     "Helium Dust",
+		"prometium":       "Prometium",
+		"terbium":         "Terbium",
+		"endurium":        "Endurium",
+		"prometid":        "Prometid",
+		"duranium":        "Duranium",
+		"promerium":       "Promerium",
+		"xenomit":         "Xenomit",
 	}
 	for _, itemID := range []foundation.ItemID{
 		"iron_ore",
@@ -134,6 +160,13 @@ func defaultItemAndLootContent(moduleCatalog modules.Catalog) (map[foundation.It
 		"refined_alloy",
 		"warp_coil",
 		"helium_dust",
+		"prometium",
+		"terbium",
+		"endurium",
+		"prometid",
+		"duranium",
+		"promerium",
+		"xenomit",
 	} {
 		definition, err := StackableItemDefinition(itemID, materialNames[itemID])
 		if err != nil {
@@ -161,44 +194,54 @@ func defaultItemAndLootContent(moduleCatalog modules.Catalog) (map[foundation.It
 		TrainingDroneSalvageLootTableID: {
 			Source: trainingSource,
 			Rows: []loot.LootRow{{
-				ItemDefinition: rawOre,
-				MinQuantity:    3,
-				MaxQuantity:    3,
+				ItemDefinition: items["prometium"],
+				MinQuantity:    20,
+				MaxQuantity:    20,
 				Chance:         1,
 			}, {
-				ItemDefinition: items["iron_ore"],
-				MinQuantity:    2,
-				MaxQuantity:    4,
-				Chance:         0.7,
+				ItemDefinition: items["terbium"],
+				MinQuantity:    20,
+				MaxQuantity:    20,
+				Chance:         1,
 			}, {
-				ItemDefinition: carbonShards,
-				MinQuantity:    1,
-				MaxQuantity:    2,
-				Chance:         0.35,
+				ItemDefinition: items["endurium"],
+				MinQuantity:    20,
+				MaxQuantity:    20,
+				Chance:         1,
 			}},
 		},
 		BorderRaiderSalvageLootTableID: {
 			Source: borderSource,
 			Rows: []loot.LootRow{{
-				ItemDefinition: carbonShards,
-				MinQuantity:    3,
-				MaxQuantity:    5,
+				ItemDefinition: items["prometium"],
+				MinQuantity:    40,
+				MaxQuantity:    40,
 				Chance:         1,
 			}, {
-				ItemDefinition: items["iron_ore"],
-				MinQuantity:    4,
-				MaxQuantity:    7,
-				Chance:         0.8,
+				ItemDefinition: items["terbium"],
+				MinQuantity:    40,
+				MaxQuantity:    40,
+				Chance:         1,
 			}, {
-				ItemDefinition: items["laser_lens"],
+				ItemDefinition: items["endurium"],
+				MinQuantity:    40,
+				MaxQuantity:    40,
+				Chance:         1,
+			}, {
+				ItemDefinition: items["prometid"],
+				MinQuantity:    2,
+				MaxQuantity:    2,
+				Chance:         1,
+			}, {
+				ItemDefinition: items["duranium"],
+				MinQuantity:    2,
+				MaxQuantity:    2,
+				Chance:         1,
+			}, {
+				ItemDefinition: items["xenomit"],
 				MinQuantity:    1,
 				MaxQuantity:    1,
 				Chance:         0.25,
-			}, {
-				ItemDefinition: items["energy_cell"],
-				MinQuantity:    1,
-				MaxQuantity:    1,
-				Chance:         0.2,
 			}},
 		},
 	}

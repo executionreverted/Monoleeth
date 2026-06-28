@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"gameproject/internal/game/combat"
-	gamecontent "gameproject/internal/game/content"
 	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
@@ -15,11 +14,6 @@ import (
 	"gameproject/internal/game/ships"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
-)
-
-const (
-	runtimeDefaultPVPDeathCargoDropPercent = gamecontent.DefaultPVPDeathCargoDrop
-	runtimeSeededPVPDeathCargoDropPercent  = gamecontent.DefaultSeededPVPDeathCargoDrop
 )
 
 func isLethalPlayerCombatResult(before combat.ActorState, result combat.BasicAttackResult) bool {

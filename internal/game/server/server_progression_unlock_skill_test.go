@@ -22,7 +22,7 @@ func rankUpPlayerForUnlockSkillTest(t *testing.T, gameServer *Server, playerID f
 	questSourceID := progression.XPSourceID("player_quest_starter_unlock_skill")
 	if _, err := gameServer.runtime.Progression.GrantXP(progression.GrantXPInput{
 		PlayerID:       playerID,
-		Amount:         100,
+		Amount:         10_000,
 		SourceType:     progression.XPSourceTypeQuest,
 		SourceID:       questSourceID,
 		IdempotencyKey: progression.XPIdempotencyKey("quest_reward:" + questSourceID.String()),

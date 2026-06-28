@@ -36,10 +36,10 @@ describe('player content catalog reducer', () => {
               {
                 item_id: 'laser_alpha_t1',
                 display: {
-                  display_name: 'Prism Lance I',
+                  display_name: 'LF-1',
                   category: 'weapons',
                   subcategory: 'Laser',
-                  art_key: 'module.prism_lance_1',
+                  art_key: 'module.lf_1',
                   rarity: 'common',
                   tier: 1,
                 },
@@ -65,11 +65,11 @@ describe('player content catalog reducer', () => {
                 product_id: 'product_module_laser_alpha_t1',
                 product_type: 'module',
                 display: {
-                  display_name: 'Prism Lance I',
+                  display_name: 'LF-1',
                   description: 'Entry laser array.',
                   category: 'weapons',
                   subcategory: 'Laser',
-                  art_key: 'module.prism_lance_1',
+                  art_key: 'module.lf_1',
                   rarity: 'common',
                   tier: 1,
                   sort_order: 20,
@@ -96,7 +96,7 @@ describe('player content catalog reducer', () => {
     });
     expect(state.contentCatalog?.modules[0]).toMatchObject({
       item_id: 'laser_alpha_t1',
-      display: { display_name: 'Prism Lance I' },
+      display: { display_name: 'LF-1' },
       stat_modifiers: [{ stat: 'weapon_damage', kind: 'flat', value: 12 }],
       cooldowns: [{ key: 'basic_attack', duration_ms: 1200 }],
     });
@@ -152,7 +152,7 @@ describe('player content catalog reducer', () => {
           modules: [
             {
               item_id: 'laser_alpha_t1',
-              display: { display_name: 'Prism Lance I' },
+              display: { display_name: 'LF-1' },
               required_role_levels: [],
               stat_modifiers: [],
               energy: {},
@@ -166,7 +166,7 @@ describe('player content catalog reducer', () => {
           shop_products: [
             {
               product_id: 'product_module_laser_alpha_t1',
-              display: { display_name: 'Prism Lance I' },
+              display: { display_name: 'LF-1' },
               grant_target: {},
               price_policy: {},
               stock_policy: {},
@@ -229,7 +229,7 @@ describe('player content catalog reducer', () => {
               ],
               version: 'content_projection_v1',
               categories: [{ category_id: 'weapons', display_name: 'Weapons' }],
-              modules: [{ item_id: 'laser_alpha_t1', display: { display_name: 'Prism Lance I' } }],
+              modules: [{ item_id: 'laser_alpha_t1', display: { display_name: 'LF-1' } }],
               shop_products: [{ product_id: 'product_module_laser_alpha_t1' }],
             },
           },

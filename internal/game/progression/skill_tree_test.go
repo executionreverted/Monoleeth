@@ -67,7 +67,7 @@ func TestUnlockPilotSkillValidatesLockedNodesAndConsumesPointOnce(t *testing.T) 
 		t.Fatalf("unknown node UnlockPilotSkill() error = %v, want ErrUnknownSkillNode", err)
 	}
 
-	grantXPAndRankForSkillTest(t, service, "player-1", 100, []RoleXPGrant{{Role: RoleTypeCombat, Amount: 75}}, 2)
+	grantXPAndRankForSkillTest(t, service, "player-1", 10_000, []RoleXPGrant{{Role: RoleTypeCombat, Amount: 75}}, 2)
 
 	if _, err := service.UnlockPilotSkill(UnlockPilotSkillInput{
 		PlayerID: "player-1",
@@ -136,7 +136,7 @@ func TestUnlockPilotSkillChecksRankAndRoleRequirements(t *testing.T) {
 		t.Fatalf("rank-low UnlockPilotSkill() error = %v, want ErrRankRequirementNotMet", err)
 	}
 
-	grantXPAndRankForSkillTest(t, service, "player-2", 100, nil, 2)
+	grantXPAndRankForSkillTest(t, service, "player-2", 10_000, nil, 2)
 	seedSkillPointsForSkillTest(t, store, "player-2", 2)
 	if _, err := service.UnlockPilotSkill(UnlockPilotSkillInput{
 		PlayerID: "player-2",
@@ -157,7 +157,7 @@ func TestRespecPilotSkillsClearsUnlocksRefundsPointsAndInvalidatesStats(t *testi
 	store := NewInMemoryProgressionStore()
 	service := NewProgressionService(clock, store)
 
-	grantXPAndRankForSkillTest(t, service, "player-1", 300, []RoleXPGrant{{Role: RoleTypeCombat, Amount: 225}}, 3)
+	grantXPAndRankForSkillTest(t, service, "player-1", 20_000, []RoleXPGrant{{Role: RoleTypeCombat, Amount: 225}}, 3)
 	for _, nodeID := range []SkillNodeID{"combat_weapon_calibration", "combat_heat_control"} {
 		if _, err := service.UnlockPilotSkill(UnlockPilotSkillInput{
 			PlayerID: "player-1",

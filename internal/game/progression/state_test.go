@@ -28,7 +28,7 @@ func TestSupportedRoleTypesValidate(t *testing.T) {
 }
 
 func TestPlayerProgressionStateValidationUsesXPAsLevelSourceOfTruth(t *testing.T) {
-	state, err := NewPlayerProgressionState("player-1", 300, 2)
+	state, err := NewPlayerProgressionState("player-1", 20_000, 2)
 	if err != nil {
 		t.Fatalf("NewPlayerProgressionState() = %v, want nil", err)
 	}
@@ -47,7 +47,7 @@ func TestPlayerProgressionStateValidationUsesXPAsLevelSourceOfTruth(t *testing.T
 		t.Fatalf("negative xp Validate() error = %v, want ErrNegativeXP", err)
 	}
 
-	state.MainXP = 300
+	state.MainXP = 20_000
 	state.Rank = 0
 	if err := state.Validate(); !errors.Is(err, ErrInvalidRank) {
 		t.Fatalf("invalid rank Validate() error = %v, want ErrInvalidRank", err)

@@ -20,8 +20,8 @@ func TestEquipCargoModuleIncreasesServerAndVisibleCargoCapacity(t *testing.T) {
 	gameServer.runtime.mu.Lock()
 	beforeCargo := gameServer.runtime.players[owner.PlayerID].Cargo
 	gameServer.runtime.mu.Unlock()
-	if beforeCargo.Capacity != 50 {
-		t.Fatalf("base cargo capacity = %d, want 50 (catalog authoritative)", beforeCargo.Capacity)
+	if beforeCargo.Capacity != 100 {
+		t.Fatalf("base cargo capacity = %d, want 100 (catalog authoritative)", beforeCargo.Capacity)
 	}
 
 	itemInstance := "cargo_expander_t1-instance-equip-test"
@@ -46,19 +46,19 @@ func TestEquipCargoModuleIncreasesServerAndVisibleCargoCapacity(t *testing.T) {
 	if err := json.Unmarshal(response.Response.Payload, &equipPayload); err != nil {
 		t.Fatalf("decode equip response: %v", err)
 	}
-	if equipPayload.Stats.CargoCapacity != 90 {
-		t.Fatalf("visible stats cargo capacity after equip = %d, want 90 (50 base + 40 module)", equipPayload.Stats.CargoCapacity)
+	if equipPayload.Stats.CargoCapacity != 140 {
+		t.Fatalf("visible stats cargo capacity after equip = %d, want 140 (100 base + 40 module)", equipPayload.Stats.CargoCapacity)
 	}
 
 	gameServer.runtime.mu.Lock()
 	afterStats := gameServer.runtime.players[owner.PlayerID].Stats
 	afterCargo := gameServer.runtime.players[owner.PlayerID].Cargo
 	gameServer.runtime.mu.Unlock()
-	if afterStats.CargoCapacity != 90 {
-		t.Fatalf("server stats cargo capacity after equip = %d, want 90", afterStats.CargoCapacity)
+	if afterStats.CargoCapacity != 140 {
+		t.Fatalf("server stats cargo capacity after equip = %d, want 140", afterStats.CargoCapacity)
 	}
-	if afterCargo.Capacity != 90 {
-		t.Fatalf("server cargo capacity after equip = %d, want 90 (authoritative)", afterCargo.Capacity)
+	if afterCargo.Capacity != 140 {
+		t.Fatalf("server cargo capacity after equip = %d, want 140 (authoritative)", afterCargo.Capacity)
 	}
 }
 

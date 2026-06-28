@@ -51,12 +51,12 @@ func TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner(t *testing.T)
 	wantSignature := visibility.SignatureForEntityType(world.EntityTypeNPC)
 	if actor.Type != world.EntityTypeNPC ||
 		actor.NPCType != trainingNPCType ||
-		actor.HP != 34 ||
-		actor.Stats.Stats.Core.HPMax != 34 ||
-		actor.Shield != 4 ||
-		actor.Stats.Stats.Core.ShieldMax != 4 ||
-		actor.Energy != 6 ||
-		actor.Stats.Stats.Core.EnergyMax != 6 ||
+		actor.HP != 2000 ||
+		actor.Stats.Stats.Core.HPMax != 2000 ||
+		actor.Shield != 2000 ||
+		actor.Stats.Stats.Core.ShieldMax != 2000 ||
+		actor.Energy != 20 ||
+		actor.Stats.Stats.Core.EnergyMax != 20 ||
 		actor.Stats.Stats.Combat.WeaponRange != 120 ||
 		actor.Stats.Stats.Combat.Accuracy != 0.7 ||
 		actor.Signature != wantSignature ||
@@ -108,12 +108,12 @@ func TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner(t *testing.T)
 		mapTwoActor.NPCType != "outer_ring_scout_drone" ||
 		mapTwoActor.WorldID != mapTwo.Definition.WorldID ||
 		mapTwoActor.ZoneID != mapTwo.Definition.ZoneID ||
-		mapTwoActor.HP != 44 ||
-		mapTwoActor.Stats.Stats.Core.HPMax != 44 ||
-		mapTwoActor.Shield != 8 ||
-		mapTwoActor.Stats.Stats.Core.ShieldMax != 8 ||
-		mapTwoActor.Energy != 4 ||
-		mapTwoActor.Stats.Stats.Core.EnergyMax != 4 ||
+		mapTwoActor.HP != 800 ||
+		mapTwoActor.Stats.Stats.Core.HPMax != 800 ||
+		mapTwoActor.Shield != 400 ||
+		mapTwoActor.Stats.Stats.Core.ShieldMax != 400 ||
+		mapTwoActor.Energy != 10 ||
+		mapTwoActor.Stats.Stats.Core.EnergyMax != 10 ||
 		mapTwoActor.Stats.Stats.Combat.WeaponRange != 140 ||
 		mapTwoActor.Stats.Stats.Combat.Accuracy != 0.72 ||
 		mapTwoActor.Signature != wantSignature ||
@@ -168,12 +168,12 @@ func TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner(t *testing.T)
 		mapThreeActor.NPCType != "border_raider_drone" ||
 		mapThreeActor.WorldID != mapThree.Definition.WorldID ||
 		mapThreeActor.ZoneID != mapThree.Definition.ZoneID ||
-		mapThreeActor.HP != 72 ||
-		mapThreeActor.Stats.Stats.Core.HPMax != 72 ||
-		mapThreeActor.Shield != 22 ||
-		mapThreeActor.Stats.Stats.Core.ShieldMax != 22 ||
-		mapThreeActor.Energy != 8 ||
-		mapThreeActor.Stats.Stats.Core.EnergyMax != 8 ||
+		mapThreeActor.HP != 6000 ||
+		mapThreeActor.Stats.Stats.Core.HPMax != 6000 ||
+		mapThreeActor.Shield != 3000 ||
+		mapThreeActor.Stats.Stats.Core.ShieldMax != 3000 ||
+		mapThreeActor.Energy != 40 ||
+		mapThreeActor.Stats.Stats.Core.EnergyMax != 40 ||
 		mapThreeActor.Stats.Stats.Combat.WeaponRange != 180 ||
 		mapThreeActor.Stats.Stats.Combat.Accuracy != 0.82 ||
 		mapThreeActor.Signature != wantSignature ||
@@ -233,8 +233,8 @@ func TestRuntimeMapTwoEnemyLifecycleRespawnsThroughMapInstance(t *testing.T) {
 	if actor, ok := gameServer.runtime.Combat.Actor(record.EntityID); !ok ||
 		actor.Type != world.EntityTypeNPC ||
 		actor.NPCType != record.NPCType ||
-		actor.HP != 44 ||
-		actor.Shield != 8 {
+		actor.HP != 800 ||
+		actor.Shield != 400 {
 		t.Fatalf("initial map_1_2 combat actor = %+v ok=%v, want live destination projection", actor, ok)
 	}
 
@@ -338,8 +338,8 @@ func TestRuntimeMapTwoEnemyLifecycleRespawnsThroughMapInstance(t *testing.T) {
 	if !ok ||
 		restoredActor.Dead ||
 		restoredActor.DiedAt != nil ||
-		restoredActor.HP != 44 ||
-		restoredActor.Shield != 8 ||
+		restoredActor.HP != 800 ||
+		restoredActor.Shield != 400 ||
 		restoredActor.NPCType != record.NPCType ||
 		restoredActor.Position != respawned.Position ||
 		restoredActor.Hidden {

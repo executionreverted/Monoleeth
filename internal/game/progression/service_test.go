@@ -16,7 +16,7 @@ func TestGrantXPAppliesMainAndRoleXPOncePerSource(t *testing.T) {
 
 	input := GrantXPInput{
 		PlayerID:       "player-1",
-		Amount:         100,
+		Amount:         10_000,
 		SourceType:     XPSourceTypeQuest,
 		SourceID:       "quest-reward-1",
 		IdempotencyKey: "xp-quest-reward-1",
@@ -32,8 +32,8 @@ func TestGrantXPAppliesMainAndRoleXPOncePerSource(t *testing.T) {
 	if result.Duplicate {
 		t.Fatal("first GrantXP Duplicate = true, want false")
 	}
-	if result.Snapshot.Player.MainXP != 100 || result.Snapshot.Player.MainLevel != 2 {
-		t.Fatalf("player after GrantXP = xp %d level %d, want xp 100 level 2", result.Snapshot.Player.MainXP, result.Snapshot.Player.MainLevel)
+	if result.Snapshot.Player.MainXP != 10_000 || result.Snapshot.Player.MainLevel != 2 {
+		t.Fatalf("player after GrantXP = xp %d level %d, want xp 10000 level 2", result.Snapshot.Player.MainXP, result.Snapshot.Player.MainLevel)
 	}
 	if result.MainLevelUp == nil || result.MainLevelUp.OldLevel != 1 || result.MainLevelUp.NewLevel != 2 {
 		t.Fatalf("MainLevelUp = %+v, want 1 -> 2", result.MainLevelUp)
@@ -60,8 +60,8 @@ func TestGrantXPAppliesMainAndRoleXPOncePerSource(t *testing.T) {
 	if !duplicateResult.Duplicate {
 		t.Fatal("duplicate GrantXP Duplicate = false, want true")
 	}
-	if duplicateResult.Snapshot.Player.MainXP != 100 || duplicateResult.Snapshot.Player.MainLevel != 2 {
-		t.Fatalf("player after duplicate GrantXP = xp %d level %d, want xp 100 level 2", duplicateResult.Snapshot.Player.MainXP, duplicateResult.Snapshot.Player.MainLevel)
+	if duplicateResult.Snapshot.Player.MainXP != 10_000 || duplicateResult.Snapshot.Player.MainLevel != 2 {
+		t.Fatalf("player after duplicate GrantXP = xp %d level %d, want xp 10000 level 2", duplicateResult.Snapshot.Player.MainXP, duplicateResult.Snapshot.Player.MainLevel)
 	}
 	duplicateRole, ok := duplicateResult.Snapshot.RoleLevel(RoleTypeCombat)
 	if !ok {
@@ -88,8 +88,8 @@ func TestGrantXPAppliesMainAndRoleXPOncePerSource(t *testing.T) {
 	if !idempotentRetryResult.Duplicate {
 		t.Fatal("idempotency retry Duplicate = false, want true")
 	}
-	if idempotentRetryResult.Snapshot.Player.MainXP != 100 {
-		t.Fatalf("player xp after idempotency retry = %d, want 100", idempotentRetryResult.Snapshot.Player.MainXP)
+	if idempotentRetryResult.Snapshot.Player.MainXP != 10_000 {
+		t.Fatalf("player xp after idempotency retry = %d, want 10000", idempotentRetryResult.Snapshot.Player.MainXP)
 	}
 	if got := len(store.XPGrantRecords("player-1")); got != 1 {
 		t.Fatalf("XPGrantRecords len after idempotency retry = %d, want 1", got)
@@ -135,7 +135,7 @@ func TestTryRankUpGrantsHistorySkillPointAndInvalidationOnce(t *testing.T) {
 
 	_, err := service.GrantXP(GrantXPInput{
 		PlayerID:       "player-1",
-		Amount:         100,
+		Amount:         10_000,
 		SourceType:     XPSourceTypeQuest,
 		SourceID:       "player_quest_starter_1",
 		IdempotencyKey: "quest_reward:player_quest_starter_1",
@@ -252,7 +252,7 @@ func TestTryRankUpRequiresQuestCompletionMilestoneFromQuestAuthority(t *testing.
 
 	if _, err := service.GrantXP(GrantXPInput{
 		PlayerID:       "player-1",
-		Amount:         100,
+		Amount:         10_000,
 		SourceType:     XPSourceTypeCombat,
 		SourceID:       "npc-kill-1",
 		IdempotencyKey: "xp-npc-kill-1",

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"gameproject/internal/game/catalog"
+	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
@@ -263,6 +264,9 @@ func (runtime *Runtime) validateShopProductPurchaseLocked(playerID foundation.Pl
 		}
 		if _, ok := runtime.itemCatalog[itemID]; !ok {
 			return 0, foundation.NewDomainError(foundation.CodeNotFound, "Shop product was not found.")
+		}
+		if gamecontent.IsCargoResourceItemID(itemID) {
+			return 0, foundation.NewDomainError(foundation.CodeForbidden, "Cargo resources are not sold in shops.")
 		}
 	case catalog.GrantTargetKindModule:
 		itemID, err := foundation.ParseItemID(product.GrantTarget.RefID)

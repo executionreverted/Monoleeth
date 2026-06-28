@@ -68,11 +68,11 @@ func TestShieldRepairTickRespectsCombatLockAndRepairsOnlyShield(t *testing.T) {
 	if err := json.Unmarshal(response.Payload, &payload); err != nil {
 		t.Fatalf("decode shield repair response: %v", err)
 	}
-	if !payload.Accepted || !payload.Repaired || payload.ShieldBefore != 20 || payload.ShieldAfter != 23 || payload.MaxShield != 100 || payload.RepairRate != 3 {
-		t.Fatalf("shield repair payload = %+v, want +3 shield from equipped module", payload)
+	if !payload.Accepted || !payload.Repaired || payload.ShieldBefore != 20 || payload.ShieldAfter != 24 || payload.MaxShield != 100 || payload.RepairRate != 4 {
+		t.Fatalf("shield repair payload = %+v, want +4 shield from equipped module", payload)
 	}
 	state := testPlayerState(t, gameServer, resolved.PlayerID)
-	if state.Ship.Hull != 45 || state.Ship.Shield != 23 {
+	if state.Ship.Hull != 45 || state.Ship.Shield != 24 {
 		t.Fatalf("state after shield repair = %+v, want hull unchanged and shield repaired", state.Ship)
 	}
 	drainEventTypes(t, conn, realtime.EventShipSnapshot, realtime.EventPlayerSnapshot)

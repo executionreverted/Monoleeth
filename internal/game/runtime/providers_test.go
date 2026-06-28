@@ -21,7 +21,7 @@ func TestProgressionProviderExposesRankAndRoleLevels(t *testing.T) {
 
 	if _, err := service.GrantXP(progression.GrantXPInput{
 		PlayerID:       "player-1",
-		Amount:         100,
+		Amount:         10_000,
 		SourceType:     progression.XPSourceTypeQuest,
 		SourceID:       "player_quest_provider_1",
 		IdempotencyKey: "quest_reward:player_quest_provider_1",
@@ -396,7 +396,7 @@ func seedPilotPassivesProgression(t *testing.T, service *progression.Progression
 	t.Helper()
 	if _, err := service.GrantXP(progression.GrantXPInput{
 		PlayerID:       playerID,
-		Amount:         1500,
+		Amount:         80_000,
 		SourceType:     progression.XPSourceTypeAdminAdjustment,
 		SourceID:       "passive-stat-seed",
 		IdempotencyKey: "passive-stat-seed",

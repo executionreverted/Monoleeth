@@ -382,7 +382,7 @@ func (runtime *Runtime) activeCargoLocationLocked(playerID foundation.PlayerID) 
 	state := runtime.players[playerID]
 	locationID := state.Ship.ActiveShipID
 	if locationID == "" {
-		locationID = starterShipID.String()
+		locationID = runtime.starterContent.ShipID.String()
 	}
 	return economy.ItemLocation{
 		Kind: economy.LocationKindShipCargo,
@@ -470,7 +470,7 @@ func (runtime *Runtime) issueRepairQuoteLocked(playerID foundation.PlayerID, sta
 
 func (runtime *Runtime) repairQuotePayloadLocked(state playerRuntimeState, quoteID string, issuedAt time.Time, expiresAt time.Time) repairQuotePayload {
 	cost := int64(0)
-	if state.Ship.ActiveShipID != starterShipID.String() {
+	if state.Ship.ActiveShipID != runtime.starterContent.ShipID.String() {
 		cost = runtime.combatRules.NonStarterShipRepairFee
 	}
 	return repairQuotePayload{

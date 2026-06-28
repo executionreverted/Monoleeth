@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"gameproject/internal/game/combat"
-	gamecontent "gameproject/internal/game/content"
 	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
@@ -21,12 +20,7 @@ import (
 	"gameproject/internal/game/world/worker"
 )
 
-const (
-	basicLaserSkillID = gamecontent.DefaultBasicLaserSkillID
-	trainingNPCType   = gamecontent.DefaultTrainingNPCType
-	repairCurrency    = string(gamecontent.DefaultRepairCurrency)
-	repairQuoteTTL    = 2 * time.Minute
-)
+const repairQuoteTTL = 2 * time.Minute
 
 type combatUseSkillIntent struct {
 	SkillID  string         `json:"skill_id"`
@@ -482,7 +476,7 @@ func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, reque
 	runtime.queueEventLocked(sessionID, realtime.EventDeathRepaired, map[string]any{
 		"ship_id":     state.Ship.ActiveShipID,
 		"repair_cost": quote.Cost,
-		"currency":    repairCurrency,
+		"currency":    runtime.combatRules.RepairCurrency.String(),
 	})
 	runtime.queueEventLocked(sessionID, realtime.EventShipSnapshot, state.Ship)
 	runtime.queueEventLocked(sessionID, realtime.EventPlayerSnapshot, state.playerSnapshot())

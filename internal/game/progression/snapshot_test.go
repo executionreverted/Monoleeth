@@ -9,7 +9,7 @@ import (
 
 func TestProgressionSnapshotHelpersReturnDefensiveCopies(t *testing.T) {
 	now := time.Date(2026, 6, 17, 13, 0, 0, 0, time.UTC)
-	player, err := NewPlayerProgressionState("player-1", 700, 3)
+	player, err := NewPlayerProgressionState("player-1", 20_000, 3)
 	if err != nil {
 		t.Fatalf("NewPlayerProgressionState() = %v, want nil", err)
 	}

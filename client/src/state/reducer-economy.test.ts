@@ -55,7 +55,7 @@ describe('reduceClientState', () => {
             ships: [
               {
                 ship_id: 'starter',
-                display_name: 'Sparrow',
+                display_name: 'Phoenix',
                 state: 'ready',
                 hull: 88,
                 max_hull: 120,
@@ -180,7 +180,7 @@ describe('reduceClientState', () => {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.hangarSnapshot, {
         active_ship_id: 'starter',
-        ships: [{ ship_id: 'starter', display_name: 'Sparrow', state: 'ready', hull: 100, max_hull: 100, shield: 100, max_shield: 100, disabled: false }],
+        ships: [{ ship_id: 'starter', display_name: 'Phoenix', state: 'ready', hull: 100, max_hull: 100, shield: 100, max_shield: 100, disabled: false }],
       }, 5),
     });
     const withLoadout = reduceClientState(withHangar, {
@@ -226,7 +226,7 @@ describe('reduceClientState', () => {
     expect(withCrafting.wallet?.credits).toBe(444);
     expect(withCrafting.stats?.weapon_range).toBe(275);
     expect(withCrafting.inventory?.counts.cargo_stacks).toBe(1);
-    expect(withCrafting.hangar?.ships[0].display_name).toBe('Sparrow');
+    expect(withCrafting.hangar?.ships[0].display_name).toBe('Phoenix');
     expect(withCrafting.loadout?.slots[0].slot_type).toBe('offensive');
     expect(withCrafting.crafting?.recipes[0].recipe_id).toBe('refined_alloy_batch');
   });
@@ -386,11 +386,11 @@ describe('reduceClientState', () => {
               {
                 product_id: 'product_module_laser_alpha_t1',
                 product_type: 'module',
-                display_name: 'Prism Lance I',
+                display_name: 'LF-1',
                 description: 'Entry laser array.',
                 category_id: 'weapons',
                 subcategory: 'Laser',
-                art_key: 'module.prism_lance_1',
+                art_key: 'module.lf_1',
                 rarity: 'common',
                 tier: 1,
                 sort_order: 20,
@@ -411,7 +411,7 @@ describe('reduceClientState', () => {
     expect(state.shopCatalog?.categories.map((category) => category.display_name)).toEqual(['Ships', 'Weapons']);
     expect(state.shopCatalog?.products[0]).toMatchObject({
       product_id: 'product_module_laser_alpha_t1',
-      display_name: 'Prism Lance I',
+      display_name: 'LF-1',
       category_id: 'weapons',
       price: { amount: 450, currency_type: 'credits' },
       availability: { available: false },
@@ -441,7 +441,7 @@ describe('reduceClientState', () => {
           accepted: true,
           product: {
             product_id: 'product_module_laser_alpha_t1',
-            display_name: 'Prism Lance I',
+            display_name: 'LF-1',
           },
           quantity: 1,
           server_total: 450,
@@ -452,7 +452,7 @@ describe('reduceClientState', () => {
               {
                 item_instance_id: 'module-shop-1',
                 item_id: 'laser_alpha_t1',
-                display_name: 'Prism Lance I',
+                display_name: 'LF-1',
                 location: 'account_inventory',
                 item_type: 'module',
                 module_slot_type: 'offensive',
@@ -469,11 +469,11 @@ describe('reduceClientState', () => {
               {
                 product_id: 'product_module_laser_alpha_t1',
                 product_type: 'module',
-                display_name: 'Prism Lance I',
+                display_name: 'LF-1',
                 description: 'Entry laser array.',
                 category_id: 'weapons',
                 subcategory: 'Laser',
-                art_key: 'module.prism_lance_1',
+                art_key: 'module.lf_1',
                 rarity: 'common',
                 tier: 1,
                 sort_order: 20,

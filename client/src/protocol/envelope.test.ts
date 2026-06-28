@@ -266,7 +266,7 @@ describe('parseServerMessage', () => {
           modules: [
             {
               item_id: 'laser_alpha_t1',
-              display: { display_name: 'Prism Lance I', rarity: 'common', tier: 1 },
+              display: { display_name: 'LF-1', rarity: 'common', tier: 1 },
               stat_modifiers: [{ stat: 'weapon_damage', kind: 'flat', value: 12 }],
               stock_policy: { kind: 'limited', total: 5 },
             },
@@ -299,7 +299,7 @@ describe('parseServerMessage', () => {
       payload: {
         content_catalog: {
           version: 'content_projection_v1',
-          modules: [{ item_id: 'laser_alpha_t1', display: { display_name: 'Prism Lance I' } }],
+          modules: [{ item_id: 'laser_alpha_t1', display: { display_name: 'LF-1' } }],
         },
       },
       server_time: 182736126,
@@ -324,7 +324,7 @@ describe('parseServerMessage', () => {
           payload: {
             content_catalog: {
               version: 'content_projection_v1',
-              modules: [{ item_id: 'laser_alpha_t1', display: { display_name: 'Prism Lance I' }, damage: 99 }],
+              modules: [{ item_id: 'laser_alpha_t1', display: { display_name: 'LF-1' }, damage: 99 }],
             },
           },
           server_time: 182736126,

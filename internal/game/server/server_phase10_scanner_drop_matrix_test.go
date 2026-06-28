@@ -55,8 +55,8 @@ func TestPhase10SeededMapScannerMemoryAndDropMatrix(t *testing.T) {
 			level:         1,
 			dropProfileID: "training_drone_salvage",
 			lootTableID:   trainingDroneSalvageLootTableID,
-			itemID:        "raw_ore",
-			quantity:      3,
+			itemID:        "prometium",
+			quantity:      20,
 			forbiddenPayload: []string{
 				"map_1_", "phase10-candidate", "drop_profile", "loot_table",
 			},
@@ -74,8 +74,8 @@ func TestPhase10SeededMapScannerMemoryAndDropMatrix(t *testing.T) {
 			level:         1,
 			dropProfileID: "outer_ring_scout_drone_salvage",
 			lootTableID:   trainingDroneSalvageLootTableID,
-			itemID:        "raw_ore",
-			quantity:      3,
+			itemID:        "prometium",
+			quantity:      20,
 			forbiddenPayload: []string{
 				"map_1_", "phase10-candidate", "drop_profile", "loot_table",
 			},
@@ -93,8 +93,8 @@ func TestPhase10SeededMapScannerMemoryAndDropMatrix(t *testing.T) {
 			level:         2,
 			dropProfileID: "border_raider_drone_salvage",
 			lootTableID:   borderRaiderSalvageLootTableID,
-			itemID:        "carbon_shards",
-			quantity:      5,
+			itemID:        "prometium",
+			quantity:      40,
 			forbiddenPayload: []string{
 				"map_1_", "phase10-candidate", "drop_profile", "loot_table",
 			},

@@ -13,10 +13,10 @@ import (
 	worldmaps "gameproject/internal/game/world/maps"
 )
 
-const MVPSnapshotVersion = "content_mvp_seed_v1"
+const MVPSnapshotVersion = "content_old_darkorbit_2009_seed_v1"
 
-// BuildMVPSnapshot compiles the current validated static gameplay bundle into
-// deterministic CMS snapshot rows.
+// BuildMVPSnapshot compiles the current validated seed bundle into deterministic
+// CMS snapshot rows for first-run contentdb publishing.
 func BuildMVPSnapshot(worldID world.WorldID) (content.Snapshot, error) {
 	bundle, err := content.DefaultGameplayContent(worldID)
 	if err != nil {
@@ -62,7 +62,38 @@ func appendCoreRows(snapshot *content.Snapshot, bundle content.GameplayContent) 
 	if err := appendMapNPCRows(snapshot, bundle); err != nil {
 		return err
 	}
+	if err := appendServerRuleRows(snapshot, bundle); err != nil {
+		return err
+	}
 	return nil
+}
+
+func appendServerRuleRows(snapshot *content.Snapshot, bundle content.GameplayContent) error {
+	var err error
+	if snapshot.ScannerConfigs, err = singletonRow("scanner_config", bundle.Scanner); err != nil {
+		return err
+	}
+	if snapshot.StarterConfigs, err = singletonRow("starter_config", bundle.Starter); err != nil {
+		return err
+	}
+	if snapshot.RoutePolicies, err = singletonRow("route_policy", bundle.Route); err != nil {
+		return err
+	}
+	if snapshot.ProductionRules, err = singletonRow("production_rules", bundle.Rules); err != nil {
+		return err
+	}
+	if snapshot.CombatRules, err = singletonRow("combat_rules", bundle.Combat); err != nil {
+		return err
+	}
+	return nil
+}
+
+func singletonRow(contentID string, data any) ([]content.SnapshotRow, error) {
+	row, err := newSnapshotRow(contentID, data)
+	if err != nil {
+		return nil, err
+	}
+	return []content.SnapshotRow{row}, nil
 }
 
 func itemRows(bundle content.GameplayContent) ([]content.SnapshotRow, error) {

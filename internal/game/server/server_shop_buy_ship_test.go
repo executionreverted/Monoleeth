@@ -61,7 +61,7 @@ func rankUpPlayerForShipBuyTest(t *testing.T, gameServer *Server, playerID found
 	questSourceID := progression.XPSourceID("player_quest_starter_ship_buy")
 	if _, err := gameServer.runtime.Progression.GrantXP(progression.GrantXPInput{
 		PlayerID:       playerID,
-		Amount:         100,
+		Amount:         10_000,
 		SourceType:     progression.XPSourceTypeQuest,
 		SourceID:       questSourceID,
 		IdempotencyKey: progression.XPIdempotencyKey("quest_reward:" + questSourceID.String()),

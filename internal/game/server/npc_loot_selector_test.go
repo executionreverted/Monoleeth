@@ -157,10 +157,10 @@ func TestNPCLootSelectorUsesOuterRingSpawnRecordDropProfileLootTable(t *testing.
 		mapTwo.Definition.WorldID,
 		mapTwo.Definition.ZoneID,
 		record.EntityID,
-		"raw_ore",
-		3,
+		"prometium",
+		20,
 	) {
-		t.Fatalf("map_1_2 created drops = %+v, want raw_ore x3 in destination map", created.Drops)
+		t.Fatalf("map_1_2 created drops = %+v, want prometium x20 in destination map", created.Drops)
 	}
 }
 
@@ -274,8 +274,8 @@ func TestNPCLootSelectorAcceptsSeededMapMatrixRows(t *testing.T) {
 			wantLevel:        1,
 			wantProfileID:    "training_drone_salvage",
 			wantTableID:      trainingDroneSalvageLootTableID,
-			wantItemID:       "raw_ore",
-			wantQuantity:     3,
+			wantItemID:       "prometium",
+			wantQuantity:     20,
 		},
 		{
 			name:             "outer ring scout drone",
@@ -286,8 +286,8 @@ func TestNPCLootSelectorAcceptsSeededMapMatrixRows(t *testing.T) {
 			wantLevel:        1,
 			wantProfileID:    "outer_ring_scout_drone_salvage",
 			wantTableID:      trainingDroneSalvageLootTableID,
-			wantItemID:       "raw_ore",
-			wantQuantity:     3,
+			wantItemID:       "prometium",
+			wantQuantity:     20,
 		},
 		{
 			name:             "border skirmish raider drone",
@@ -298,8 +298,8 @@ func TestNPCLootSelectorAcceptsSeededMapMatrixRows(t *testing.T) {
 			wantLevel:        2,
 			wantProfileID:    "border_raider_drone_salvage",
 			wantTableID:      borderRaiderSalvageLootTableID,
-			wantItemID:       "carbon_shards",
-			wantQuantity:     5,
+			wantItemID:       "prometium",
+			wantQuantity:     40,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

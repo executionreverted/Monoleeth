@@ -39,7 +39,7 @@ func TestRuntimeApplyPublishedContentReflectsSafeReloadInCatalog(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	if display := runtimeCatalogItemDisplay(t, runtime, "raw_ore"); display == "Auric Ore Bundle" {
+	if display := runtimeCatalogItemDisplay(t, runtime, "raw_ore"); display == "Auric Ore" {
 		t.Fatalf("v1 catalog already shows published name %q before apply", display)
 	}
 
@@ -56,8 +56,8 @@ func TestRuntimeApplyPublishedContentReflectsSafeReloadInCatalog(t *testing.T) {
 		t.Fatalf("runtime_version empty after safe apply, want reloaded version")
 	}
 
-	if display := runtimeCatalogItemDisplay(t, runtime, "raw_ore"); display != "Auric Ore Bundle" {
-		t.Fatalf("catalog item display = %q, want %q reflected without restart", display, "Auric Ore Bundle")
+	if display := runtimeCatalogItemDisplay(t, runtime, "raw_ore"); display != "Auric Ore" {
+		t.Fatalf("catalog item display = %q, want %q reflected without restart", display, "Auric Ore")
 	}
 }
 
@@ -88,7 +88,7 @@ func TestRuntimeApplyPublishedContentReportsPendingRestartForRestartRequired(t *
 		t.Fatalf("runtime_version = %q, want previous %q (projection must not drift)", outcome.RuntimeVersion, previousRuntimeVersion)
 	}
 
-	if display := runtimeCatalogItemDisplay(t, runtime, "raw_ore"); display == "Auric Ore Bundle" {
+	if display := runtimeCatalogItemDisplay(t, runtime, "raw_ore"); display == "Auric Ore" {
 		t.Fatalf("catalog drifted to published name %q despite pending restart", display)
 	}
 }

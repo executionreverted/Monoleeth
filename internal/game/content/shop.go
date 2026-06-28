@@ -44,15 +44,6 @@ func DefaultShopContent(
 		}
 		products = append(products, product)
 	}
-	if _, ok := items["raw_ore"]; ok {
-		products = append(products, materialShopProduct("product_ferrite_ore", "raw_ore", "Ferrite Ore", "Dense starter ore used for ship repairs, starter crafting, and early trade loops.", "item.ferrite_ore", 10, 40, 900))
-	}
-	if _, ok := items["iron_ore"]; ok {
-		products = append(products, materialShopProduct("product_iron_ore", "iron_ore", "Iron Ore", "Common ore used in early alloy batches and repair stockpiles.", "item.iron_ore", 10, 60, 910))
-	}
-	if _, ok := items["carbon_shards"]; ok {
-		products = append(products, materialShopProduct("product_carbon_shards", "carbon_shards", "Carbon Shards", "Conductive fragments used by starter alloy and module recipes.", "item.carbon_shards", 5, 90, 920))
-	}
 	if _, ok := items["laser_lens"]; ok {
 		products = append(products, materialShopProduct("product_laser_lens", "laser_lens", "Laser Lens", "Focusing glass for entry weapon fabrication.", "item.laser_lens", 2, 160, 930))
 	}
@@ -158,31 +149,31 @@ func runtimeShipShopProduct(definition ships.ShipDefinition) (catalog.ShopProduc
 	}
 	metadata := map[foundation.ShipID]catalog.DisplayMetadata{
 		ships.ShipIDFighterT1: {
-			DisplayName: "Helion Lance",
-			Description: "Combat chassis with extra weapon slots and balanced shield reserves.",
+			DisplayName: "Goliath K2",
+			Description: "Combat chassis using the temporary legacy Goliath K2 balance.",
 			Category:    ShopCategoryShips,
 			Subcategory: "Fighter",
-			ArtKey:      "ship.helion_lance",
+			ArtKey:      "ship.goliath_k2",
 			Rarity:      economy.ItemRarityUncommon.String(),
 			Tier:        definition.Tier,
 			SortOrder:   100,
 		},
 		ships.ShipIDScoutT1: {
-			DisplayName: "Vesper Dart",
-			Description: "Fast scout hull built for radar coverage, scanner duty, and quick escapes.",
+			DisplayName: "Vengeance",
+			Description: "Fast scout hull using the temporary legacy Vengeance balance.",
 			Category:    ShopCategoryShips,
 			Subcategory: "Scout",
-			ArtKey:      "ship.vesper_dart",
+			ArtKey:      "ship.vengeance",
 			Rarity:      economy.ItemRarityUncommon.String(),
 			Tier:        definition.Tier,
 			SortOrder:   110,
 		},
 		ships.ShipIDHaulerT1: {
-			DisplayName: "Atlas Courier",
-			Description: "Cargo-heavy hull with stronger plating for resource runs and route staging.",
+			DisplayName: "Bigboy",
+			Description: "Cargo-heavy hull using the temporary legacy Bigboy balance.",
 			Category:    ShopCategoryShips,
 			Subcategory: "Hauler",
-			ArtKey:      "ship.atlas_courier",
+			ArtKey:      "ship.bigboy",
 			Rarity:      economy.ItemRarityUncommon.String(),
 			Tier:        definition.Tier,
 			SortOrder:   120,
@@ -233,26 +224,26 @@ func runtimeModuleShopDisplay(definition modules.ModuleDefinition) (catalog.Disp
 	switch definition.ItemID {
 	case "laser_alpha_t1":
 		return catalog.DisplayMetadata{
-			DisplayName: "Prism Lance I",
-			Description: "Entry laser array for reliable basic-fire pressure against small hostiles.",
+			DisplayName: "LF-1",
+			Description: "Entry laser cannon using the legacy LF-1 damage baseline.",
 			Category:    ShopCategoryWeapons,
 			Subcategory: "Laser",
-			ArtKey:      "module.prism_lance_1",
+			ArtKey:      "module.lf_1",
 			Rarity:      definition.Rarity.String(),
 			Tier:        definition.Tier,
 			SortOrder:   200,
-		}, 450, true
+		}, 10_000, true
 	case "shield_generator_t1":
 		return catalog.DisplayMetadata{
-			DisplayName: "Aurora Shield Cell",
-			Description: "Compact shield generator that increases maximum shield and passive recovery.",
+			DisplayName: "SG3N-A01",
+			Description: "Starter shield generator using the legacy SG3N-A01 baseline.",
 			Category:    ShopCategoryShieldGenerators,
 			Subcategory: "Shield",
-			ArtKey:      "module.aurora_shield_cell",
+			ArtKey:      "module.sg3n_a01",
 			Rarity:      definition.Rarity.String(),
 			Tier:        definition.Tier,
 			SortOrder:   500,
-		}, 420, true
+		}, 8_000, true
 	case "scanner_t1":
 		return catalog.DisplayMetadata{
 			DisplayName: "Horizon Scanner",

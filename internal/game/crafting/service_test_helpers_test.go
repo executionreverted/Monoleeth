@@ -317,7 +317,7 @@ func (fixture *craftingServiceFixture) seedRank2(t *testing.T) {
 
 	_, err := fixture.progression.GrantXP(progression.GrantXPInput{
 		PlayerID:       fixture.playerID,
-		Amount:         100,
+		Amount:         10_000,
 		SourceType:     progression.XPSourceTypeAdminAdjustment,
 		SourceID:       progression.XPSourceID("seed-main-rank-2"),
 		IdempotencyKey: progression.XPIdempotencyKey("seed-main-rank-2"),

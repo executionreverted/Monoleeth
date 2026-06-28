@@ -26,6 +26,7 @@ func TestPlayableVerticalServerAuthoritativeLoop(t *testing.T) {
 		TickDelta:          50 * time.Millisecond,
 		PasswordHasher:     auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
 		Clock:              clock,
+		ContentRepository:  staticContentRepositoryForTest(),
 	})
 	if err != nil {
 		t.Fatalf("New(playable vertical) error = %v, want nil", err)
@@ -59,6 +60,7 @@ func TestPlayableVerticalClaimedPlanetCanSourceRouteSettlement(t *testing.T) {
 		TickDelta:          50 * time.Millisecond,
 		PasswordHasher:     auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
 		Clock:              clock,
+		ContentRepository:  staticContentRepositoryForTest(),
 	})
 	if err != nil {
 		t.Fatalf("New(claimed route vertical) error = %v, want nil", err)
@@ -177,6 +179,7 @@ func playableVerticalCombatLoot(
 	t.Helper()
 
 	targetID := playableVerticalNPCEntityID(t, gameServer, resolved.PlayerID, npcType)
+	primeVerticalTargetForLootSmoke(t, gameServer, targetID)
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, targetID, world.Vec2{})
 
 	var drop verticalCreatedDrop
@@ -228,6 +231,22 @@ func playableVerticalCombatLoot(
 		t.Fatalf("post vertical loot events: %v", err)
 	}
 	return drop.DropID
+}
+
+func primeVerticalTargetForLootSmoke(t *testing.T, gameServer *Server, targetID world.EntityID) {
+	t.Helper()
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	actor, ok := gameServer.runtime.Combat.Actor(targetID)
+	if !ok {
+		t.Fatalf("vertical combat target %q missing", targetID)
+	}
+	actor.HP = 10
+	actor.Shield = 0
+	if err := gameServer.runtime.Combat.UpsertActor(actor); err != nil {
+		t.Fatalf("prime vertical combat target %q: %v", targetID, err)
+	}
 }
 
 func playableVerticalNPCEntityID(t *testing.T, gameServer *Server, playerID foundation.PlayerID, npcType string) world.EntityID {

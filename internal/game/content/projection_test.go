@@ -142,7 +142,7 @@ func TestProjectGameplayContentForPlayersOmitsServerOnlyCatalogs(t *testing.T) {
 	}
 	body := string(encoded)
 
-	for _, want := range []string{`"items"`, `"modules"`, `"shop_products"`, `"categories"`, `"item_id":"raw_ore"`, `"product_id":"product_ferrite_ore"`} {
+	for _, want := range []string{`"items"`, `"modules"`, `"shop_products"`, `"categories"`, `"item_id":"raw_ore"`, `"product_id":"product_laser_lens"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("projection missing %s: %s", want, body)
 		}

@@ -5,6 +5,7 @@ import "fmt"
 const (
 	MinProgressionLevel = 1
 	MaxMVPLevel         = 5
+	MaxMainLevel        = 32
 	MinRank             = 1
 	MaxMVPRank          = 5
 )
@@ -12,10 +13,37 @@ const (
 var (
 	defaultMainXPTable = XPTable{
 		{Level: 1, RequiredXP: 0},
-		{Level: 2, RequiredXP: 100},
-		{Level: 3, RequiredXP: 300},
-		{Level: 4, RequiredXP: 700},
-		{Level: 5, RequiredXP: 1500},
+		{Level: 2, RequiredXP: 10_000},
+		{Level: 3, RequiredXP: 20_000},
+		{Level: 4, RequiredXP: 40_000},
+		{Level: 5, RequiredXP: 80_000},
+		{Level: 6, RequiredXP: 160_000},
+		{Level: 7, RequiredXP: 320_000},
+		{Level: 8, RequiredXP: 640_000},
+		{Level: 9, RequiredXP: 1_280_000},
+		{Level: 10, RequiredXP: 2_560_000},
+		{Level: 11, RequiredXP: 5_120_000},
+		{Level: 12, RequiredXP: 10_240_000},
+		{Level: 13, RequiredXP: 20_480_000},
+		{Level: 14, RequiredXP: 40_960_000},
+		{Level: 15, RequiredXP: 81_920_000},
+		{Level: 16, RequiredXP: 163_840_000},
+		{Level: 17, RequiredXP: 327_680_000},
+		{Level: 18, RequiredXP: 655_360_000},
+		{Level: 19, RequiredXP: 1_310_720_000},
+		{Level: 20, RequiredXP: 2_147_483_647},
+		{Level: 21, RequiredXP: 5_242_880_000},
+		{Level: 22, RequiredXP: 10_485_760_000},
+		{Level: 23, RequiredXP: 20_971_520_000},
+		{Level: 24, RequiredXP: 41_943_040_000},
+		{Level: 25, RequiredXP: 83_886_080_000},
+		{Level: 26, RequiredXP: 167_772_160_000},
+		{Level: 27, RequiredXP: 335_544_320_000},
+		{Level: 28, RequiredXP: 671_088_640_000},
+		{Level: 29, RequiredXP: 1_342_177_280_000},
+		{Level: 30, RequiredXP: 2_684_354_560_000},
+		{Level: 31, RequiredXP: 5_368_709_120_000},
+		{Level: 32, RequiredXP: 10_737_418_240_000},
 	}
 	defaultRoleXPTable = XPTable{
 		{Level: 1, RequiredXP: 0},

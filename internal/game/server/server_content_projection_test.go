@@ -44,8 +44,8 @@ func TestContentCatalogReturnsSafePlayerProjection(t *testing.T) {
 	if !contentCatalogHasModule(catalog.Modules, "laser_alpha_t1") {
 		t.Fatalf("content catalog modules missing laser_alpha_t1: %+v", catalog.Modules)
 	}
-	if !contentCatalogHasShopProduct(catalog.ShopProducts, "product_ferrite_ore") {
-		t.Fatalf("content catalog shop products missing product_ferrite_ore: %+v", catalog.ShopProducts)
+	if !contentCatalogHasShopProduct(catalog.ShopProducts, "product_laser_lens") {
+		t.Fatalf("content catalog shop products missing product_laser_lens: %+v", catalog.ShopProducts)
 	}
 
 	writeText(t, conn, `{"request_id":"request-content-catalog-spoof","op":"content.catalog","payload":{"player_id":"spoof"},"client_seq":2,"v":1}`)

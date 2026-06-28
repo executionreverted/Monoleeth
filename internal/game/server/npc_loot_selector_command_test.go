@@ -65,6 +65,12 @@ func TestCombatUseSkillSelectorFailureDoesNotLeakQueuedEventsOrKillSpawner(t *te
 		gameServer.runtime.mu.Unlock()
 		t.Fatalf("combat actor %q missing after prime", targetID)
 	}
+	actorBefore.HP = 10
+	actorBefore.Shield = 0
+	if err := gameServer.runtime.Combat.UpsertActor(actorBefore); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("prime target for selector failure: %v", err)
+	}
 	hpBefore = actorBefore.HP
 	shieldBefore = actorBefore.Shield
 	attacker, ok := gameServer.runtime.Combat.Actor(attackerEntityID)
@@ -91,6 +97,7 @@ func TestCombatUseSkillSelectorFailureDoesNotLeakQueuedEventsOrKillSpawner(t *te
 	if !drainResponse.OK {
 		t.Fatalf("drain command response = %+v, want success", drainResponse)
 	}
+	drainEventTypes(t, conn, realtime.EventAOIEntityUpdated)
 	assertNoRealtimeMessageWithin(t, "selector failure stale post-command events", conn, 100*time.Millisecond)
 
 	gameServer.runtime.mu.Lock()

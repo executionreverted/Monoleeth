@@ -5,20 +5,21 @@ import (
 	"testing"
 )
 
-func TestMainXPTableThresholdsCoverMVPRanksOneThroughFive(t *testing.T) {
+func TestMainXPTableThresholdsUseOldDarkOrbitShipXP(t *testing.T) {
 	if err := MainXPTable().Validate(); err != nil {
 		t.Fatalf("MainXPTable Validate() = %v, want nil", err)
 	}
 	assertTableThreshold(t, MainXPTable(), 0, 1)
-	assertTableThreshold(t, MainXPTable(), 99, 1)
-	assertTableThreshold(t, MainXPTable(), 100, 2)
-	assertTableThreshold(t, MainXPTable(), 299, 2)
-	assertTableThreshold(t, MainXPTable(), 300, 3)
-	assertTableThreshold(t, MainXPTable(), 699, 3)
-	assertTableThreshold(t, MainXPTable(), 700, 4)
-	assertTableThreshold(t, MainXPTable(), 1499, 4)
-	assertTableThreshold(t, MainXPTable(), 1500, 5)
-	assertTableThreshold(t, MainXPTable(), 20_000, 5)
+	assertTableThreshold(t, MainXPTable(), 9_999, 1)
+	assertTableThreshold(t, MainXPTable(), 10_000, 2)
+	assertTableThreshold(t, MainXPTable(), 19_999, 2)
+	assertTableThreshold(t, MainXPTable(), 20_000, 3)
+	assertTableThreshold(t, MainXPTable(), 79_999, 4)
+	assertTableThreshold(t, MainXPTable(), 80_000, 5)
+	assertTableThreshold(t, MainXPTable(), 2_147_483_646, 19)
+	assertTableThreshold(t, MainXPTable(), 2_147_483_647, 20)
+	assertTableThreshold(t, MainXPTable(), 10_737_418_239_999, 31)
+	assertTableThreshold(t, MainXPTable(), 10_737_418_240_000, 32)
 
 	for rank := MinRank; rank <= MaxMVPRank; rank++ {
 		if err := ValidateRank(rank); err != nil {
@@ -138,8 +139,8 @@ func TestLevelLookupRejectsNegativeXPAndInvalidLevels(t *testing.T) {
 	if err := ValidateRank(MaxMVPRank + 1); !errors.Is(err, ErrInvalidRank) {
 		t.Fatalf("ValidateRank(%d) error = %v, want ErrInvalidRank", MaxMVPRank+1, err)
 	}
-	if _, err := MainXPTable().RequiredXPForLevel(MaxMVPLevel + 1); !errors.Is(err, ErrInvalidLevel) {
-		t.Fatalf("RequiredXPForLevel(%d) error = %v, want ErrInvalidLevel", MaxMVPLevel+1, err)
+	if _, err := MainXPTable().RequiredXPForLevel(MaxMainLevel + 1); !errors.Is(err, ErrInvalidLevel) {
+		t.Fatalf("RequiredXPForLevel(%d) error = %v, want ErrInvalidLevel", MaxMainLevel+1, err)
 	}
 }
 

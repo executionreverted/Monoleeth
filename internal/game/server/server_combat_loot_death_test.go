@@ -106,8 +106,8 @@ func TestCombatKillCreatesLootAndPickupUpdatesCargo(t *testing.T) {
 			if err := json.Unmarshal(event.Payload, &payload); err != nil {
 				t.Fatalf("decode loot.created: %v", err)
 			}
-			if payload.DropID == "" || payload.EntityID != payload.DropID || payload.ItemID != "raw_ore" || payload.Quantity != 3 {
-				t.Fatalf("loot.created payload = %+v, want raw ore drop", payload)
+			if payload.DropID == "" || payload.EntityID != payload.DropID || payload.ItemID != "prometium" || payload.Quantity != 20 {
+				t.Fatalf("loot.created payload = %+v, want prometium drop", payload)
 			}
 			dropID = payload.DropID
 		}
@@ -154,20 +154,20 @@ func TestCombatKillCreatesLootAndPickupUpdatesCargo(t *testing.T) {
 	if err := json.Unmarshal(pickup.Payload, &pickupPayload); err != nil {
 		t.Fatalf("decode pickup response: %v", err)
 	}
-	if !pickupPayload.Accepted || pickupPayload.Cargo.Used != 6 || len(pickupPayload.Cargo.Items) != 1 || pickupPayload.Cargo.Items[0].Quantity != 3 {
-		t.Fatalf("pickup payload = %+v, want cargo with three raw ore", pickupPayload)
+	if !pickupPayload.Accepted || pickupPayload.Cargo.Used != 40 || len(pickupPayload.Cargo.Items) != 1 || pickupPayload.Cargo.Items[0].Quantity != 20 {
+		t.Fatalf("pickup payload = %+v, want cargo with prometium x20", pickupPayload)
 	}
-	rawOreCargo := pickupPayload.Cargo.Items[0]
-	if rawOreCargo.ItemID != "raw_ore" ||
-		rawOreCargo.DisplayName != "Raw Ore" ||
-		rawOreCargo.Category != "resource" ||
-		rawOreCargo.ArtKey != "item.raw_ore" ||
-		rawOreCargo.UnitWeight != 2 ||
-		rawOreCargo.UsedUnits != 6 ||
-		rawOreCargo.Location != economy.LocationKindShipCargo.String() ||
-		rawOreCargo.MoveEligible ||
-		rawOreCargo.LockedReason != "cargo_transfer_unavailable" {
-		t.Fatalf("cargo metadata = %+v, want server-owned raw ore metadata and move locked", rawOreCargo)
+	prometiumCargo := pickupPayload.Cargo.Items[0]
+	if prometiumCargo.ItemID != "prometium" ||
+		prometiumCargo.DisplayName != "Prometium" ||
+		prometiumCargo.Category != "resource" ||
+		prometiumCargo.ArtKey != "item.prometium" ||
+		prometiumCargo.UnitWeight != 2 ||
+		prometiumCargo.UsedUnits != 40 ||
+		prometiumCargo.Location != economy.LocationKindShipCargo.String() ||
+		prometiumCargo.MoveEligible ||
+		prometiumCargo.LockedReason != "cargo_transfer_unavailable" {
+		t.Fatalf("cargo metadata = %+v, want server-owned prometium metadata and move locked", prometiumCargo)
 	}
 
 	seen = map[realtime.ClientEventType]bool{}
@@ -1039,7 +1039,7 @@ func rankRepairTestPlayerForShipActivation(t *testing.T, gameServer *Server, pla
 	questSourceID := progression.XPSourceID("player_quest_starter_1")
 	if _, err := gameServer.runtime.Progression.GrantXP(progression.GrantXPInput{
 		PlayerID:       playerID,
-		Amount:         100,
+		Amount:         10_000,
 		SourceType:     progression.XPSourceTypeQuest,
 		SourceID:       questSourceID,
 		IdempotencyKey: progression.XPIdempotencyKey("quest_reward:" + questSourceID.String()),

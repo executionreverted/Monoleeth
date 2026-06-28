@@ -560,6 +560,7 @@ func (runtime *Runtime) inventorySnapshotLocked(playerID foundation.PlayerID) in
 		location := publicInventoryLocation(item.Location)
 		if item.Location == activeCargo {
 			counts.CargoStacks++
+			continue
 		} else if isStorageLocation(item.Location.Kind) {
 			counts.StorageStacks++
 		}

@@ -5,8 +5,9 @@ import (
 	"gameproject/internal/game/foundation"
 )
 
-// MVPShipDefinitions returns the initial ship catalog rows required for the
-// first progression/ship vertical slice.
+// MVPShipDefinitions returns a legacy in-package fallback used by isolated
+// unit tests. Runtime ship rows are loaded through content repositories and
+// contentdb snapshots, not from this helper.
 func MVPShipDefinitions() []ShipDefinition {
 	return []ShipDefinition{
 		mustMVPShipDefinition(
@@ -92,7 +93,7 @@ func MVPShipDefinitions() []ShipDefinition {
 	}
 }
 
-// MVPShipCatalog returns the validated initial ship catalog.
+// MVPShipCatalog returns the validated legacy fallback catalog.
 func MVPShipCatalog() (Catalog, error) {
 	return NewCatalog(MVPShipDefinitions())
 }
