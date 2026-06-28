@@ -19,7 +19,7 @@ func TestBuildStarterItemRowsMapsKalaazuItems(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildStarterItemRows() error = %v, want nil", err)
 	}
-	if got, want := len(rows), len(dumpRows)+13; got != want {
+	if got, want := len(rows), len(dumpRows)+16; got != want {
 		t.Fatalf("item rows = %d, want dump row count plus compatibility rows %d", got, want)
 	}
 
@@ -39,6 +39,19 @@ func TestBuildStarterItemRowsMapsKalaazuItems(t *testing.T) {
 	starterShield := requireItemDefinitionForTest(t, rows, "shield_generator_t1")
 	if starterShield.Name != "SG3N-A01" || starterShield.Type != economy.ItemTypeInstance || starterShield.MaxStack.Int64() != 1 {
 		t.Fatalf("starter shield item = %+v, want Kalaazu SG3N-A01 instance item projected onto starter contract", starterShield)
+	}
+	for _, want := range []struct {
+		contentID content.ContentID
+		name      string
+	}{
+		{contentID: "scanner_t1", name: "G-RL1"},
+		{contentID: "radar_t1", name: "AI-R1"},
+		{contentID: "cargo_expander_t1", name: "G3X-CRGO-X"},
+	} {
+		definition := requireItemDefinitionForTest(t, rows, want.contentID)
+		if definition.Name != want.name || definition.Type != economy.ItemTypeInstance || definition.MaxStack.Int64() != 1 {
+			t.Fatalf("compatibility utility item %s = %+v, want Kalaazu %s instance item projection", want.contentID, definition, want.name)
+		}
 	}
 	for _, want := range []struct {
 		contentID content.ContentID
@@ -74,8 +87,8 @@ func TestBuildStarterModuleRowsMapsKalaazuLasersShieldsAndSpeedGenerators(t *tes
 	if err != nil {
 		t.Fatalf("BuildStarterModuleRows() error = %v, want nil", err)
 	}
-	if got, want := len(rows), 18; got != want {
-		t.Fatalf("module rows = %d, want %d laser/shield/speed rows plus starter compatibility rows", got, want)
+	if got, want := len(rows), 21; got != want {
+		t.Fatalf("module rows = %d, want %d laser/shield/speed rows plus compatibility rows", got, want)
 	}
 
 	lf1 := requireModuleDefinitionForTest(t, rows, "equipment_weapon_laser_lf_1")
@@ -105,6 +118,32 @@ func TestBuildStarterModuleRowsMapsKalaazuLasersShieldsAndSpeedGenerators(t *tes
 		moduleTestStatValue(starterShield, modules.StatShieldRegen) != 4 ||
 		starterShield.Energy.Upkeep != 2 {
 		t.Fatalf("starter compatibility shield = %+v, want Kalaazu SG3N-A01 projected onto starter contract", starterShield)
+	}
+	scanner := requireModuleDefinitionForTest(t, rows, "scanner_t1")
+	if scanner.Name != "G-RL1" ||
+		moduleTestStatValue(scanner, modules.StatScanPower) != 10 ||
+		moduleTestStatValue(scanner, modules.StatScanRadius) != 2_000 ||
+		scanner.Energy.ActivationCost != 6 ||
+		len(scanner.Cooldowns) != 1 ||
+		scanner.Cooldowns[0].Key != modules.CooldownScanPulse {
+		t.Fatalf("scanner compatibility module = %+v, want Kalaazu G-RL1 projected onto scanner contract", scanner)
+	}
+	radar := requireModuleDefinitionForTest(t, rows, "radar_t1")
+	if radar.Name != "AI-R1" ||
+		len(radar.StatModifiers) != 1 ||
+		radar.StatModifiers[0].Stat != modules.StatRadarRange ||
+		radar.StatModifiers[0].Kind != modules.StatModifierPercent ||
+		radar.StatModifiers[0].Value != 200 ||
+		radar.Energy.Upkeep != 1 {
+		t.Fatalf("radar compatibility module = %+v, want Kalaazu AI-R1 projected onto radar contract", radar)
+	}
+	cargo := requireModuleDefinitionForTest(t, rows, "cargo_expander_t1")
+	if cargo.Name != "G3X-CRGO-X" ||
+		len(cargo.StatModifiers) != 1 ||
+		cargo.StatModifiers[0].Stat != modules.StatCargoCapacity ||
+		cargo.StatModifiers[0].Kind != modules.StatModifierPercent ||
+		cargo.StatModifiers[0].Value != 10_000 {
+		t.Fatalf("cargo compatibility module = %+v, want Kalaazu G3X-CRGO-X projected onto cargo contract", cargo)
 	}
 }
 

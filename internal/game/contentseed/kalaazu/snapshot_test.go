@@ -11,7 +11,7 @@ func TestBuildDefaultRowsReturnsImportReportAndAllSupportedGroups(t *testing.T) 
 	if err != nil {
 		t.Fatalf("BuildDefaultRows() error = %v, want nil", err)
 	}
-	if got, want := len(rows.ItemRows), rows.Report.SourceRows["items"]+13; got != want {
+	if got, want := len(rows.ItemRows), rows.Report.SourceRows["items"]+16; got != want {
 		t.Fatalf("item imported/source rows = %d/%d, want source rows plus starter compatibility rows", got, rows.Report.SourceRows["items"])
 	}
 	if rows.Report.SourceRows["maps"] == 0 ||
@@ -23,7 +23,7 @@ func TestBuildDefaultRowsReturnsImportReportAndAllSupportedGroups(t *testing.T) 
 	}
 	if rows.Report.ImportedRows[content.ContentTypeMap] != 3 ||
 		rows.Report.ImportedRows[content.ContentTypeMapPortal] == 0 ||
-		rows.Report.ImportedRows[content.ContentTypeModule] != 18 ||
+		rows.Report.ImportedRows[content.ContentTypeModule] != 21 ||
 		rows.Report.ImportedRows[content.ContentTypeShip] != 17 ||
 		rows.Report.ImportedRows[content.ContentTypeEnemyPool] != 11 {
 		t.Fatalf("imported report = %+v, want starter maps/modules/ships/enemy pools", rows.Report.ImportedRows)

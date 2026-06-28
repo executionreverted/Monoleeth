@@ -100,7 +100,13 @@ func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeProjectedStarterModules(t
 	if err != nil {
 		t.Fatalf("DefaultSnapshotLegacyBridgeReport() error = %v, want nil", err)
 	}
-	for _, contentID := range []content.ContentID{"laser_alpha_t1", "shield_generator_t1"} {
+	for _, contentID := range []content.ContentID{
+		"laser_alpha_t1",
+		"shield_generator_t1",
+		"scanner_t1",
+		"radar_t1",
+		"cargo_expander_t1",
+	} {
 		if legacyBridgeReportHasRow(report, content.ContentTypeModule, contentID) {
 			t.Fatalf("bridge report contains module/%s, want Kalaazu compatibility projection", contentID)
 		}
@@ -112,7 +118,13 @@ func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeProjectedStarterModuleIte
 	if err != nil {
 		t.Fatalf("DefaultSnapshotLegacyBridgeReport() error = %v, want nil", err)
 	}
-	for _, contentID := range []content.ContentID{"laser_alpha_t1", "shield_generator_t1"} {
+	for _, contentID := range []content.ContentID{
+		"laser_alpha_t1",
+		"shield_generator_t1",
+		"scanner_t1",
+		"radar_t1",
+		"cargo_expander_t1",
+	} {
 		if legacyBridgeReportHasRow(report, content.ContentTypeItem, contentID) {
 			t.Fatalf("bridge report contains item/%s, want Kalaazu compatibility projection", contentID)
 		}

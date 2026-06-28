@@ -61,6 +61,10 @@ Completed and committed:
   recipes/quests (`prometium`, `raw_ore`, `endurium`, `iron_ore`, `terbium`,
   `prometid`, `refined_alloy`, `duranium`, `xenomit`, `carbon_shards`, and
   `promerium`) are now projected from Kalaazu resource rows.
+- Task 8 bridge reduction slice: utility compatibility ids `scanner_t1`,
+  `radar_t1`, and `cargo_expander_t1` plus their item rows are now projected
+  from Kalaazu G-RL1, AI-R1, and G3X-CRGO-X rows while preserving existing
+  starter/loadout contracts.
 
 Remaining before this plan is complete:
 

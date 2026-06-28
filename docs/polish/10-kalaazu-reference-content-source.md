@@ -124,10 +124,12 @@ Implemented mapping rules:
   keep working while their stats and slots come from Kalaazu rows.
 - Modules: laser rows become offensive modules with `weapon_damage`; shield
   generator rows become defensive modules with `shield_max`; speed generator
-  rows become defensive generator modules with `speed`. Starter compatibility
-  ids `laser_alpha_t1` and `shield_generator_t1` are projected from the
-  Kalaazu LF-1 and SG3N-A01 rows so existing starter/loadout contracts keep
-  working while their combat stats come from the default seed builder.
+  rows become defensive generator modules with `speed`. Starter combat
+  compatibility ids `laser_alpha_t1` and `shield_generator_t1` are projected
+  from the Kalaazu LF-1 and SG3N-A01 rows. Utility compatibility ids
+  `scanner_t1`, `radar_t1`, and `cargo_expander_t1` are projected from Kalaazu
+  G-RL1, AI-R1, and G3X-CRGO-X rows so existing starter/loadout contracts keep
+  working while their module rows come from the default seed builder.
 - Shop: buyable Kalaazu rows become shop products and are classified as ship,
   module, or item products based on the rows imported above. Default snapshot
   shop products are fully Kalaazu-derived; local/static shop products remain
@@ -140,13 +142,13 @@ Implemented mapping rules:
 - Static bridge posture: `contentseed.DefaultSnapshotLegacyBridgeReport`
   enumerates every default snapshot row that still comes from local legacy
   content instead of Kalaazu source rows. Current temporary bridge categories
-  are legacy item/module rows needed by scanner/cargo/special-item
-  compatibility, craft recipes, production buildings, quest templates/rewards,
-  scanner config, starter config, route policy, production rules, and combat
-  rules. Map shells, portals, NPC templates, spawn areas, enemy pools, NPC drop
-  profiles, aggro profiles, leash profiles, ship rows, shop products, loot
-  tables, projected starter laser/shield module rows, their item rows, and
-  projected material item rows must remain fully Kalaazu-derived.
+  are legacy item rows needed by special-item compatibility, craft recipes,
+  production buildings, quest templates/rewards, scanner config, starter
+  config, route policy, production rules, and combat rules. Map shells,
+  portals, NPC templates, spawn areas, enemy pools, NPC drop profiles, aggro
+  profiles, leash profiles, ship rows, shop products, loot tables, projected
+  starter laser/shield/utility module rows, their item rows, and projected
+  material item rows must remain fully Kalaazu-derived.
 
 This belongs to Phase 7 of:
 

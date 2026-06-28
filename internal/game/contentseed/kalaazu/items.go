@@ -34,7 +34,7 @@ func mapStarterItemRows(itemRows []DumpRow) ([]content.SnapshotRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows := make([]content.SnapshotRow, 0, len(sources)+13)
+	rows := make([]content.SnapshotRow, 0, len(sources)+16)
 	for _, source := range sources {
 		definition, err := itemDefinitionWithID(source.Source, source.ItemID)
 		if err != nil {
@@ -194,6 +194,9 @@ func starterCompatibilityItemRows(sources []mappedKalaazuItemSource) ([]content.
 	}{
 		{sourceID: "equipment_weapon_laser_lf_1", targetID: "laser_alpha_t1"},
 		{sourceID: "equipment_generator_shield_sg3n_a01", targetID: "shield_generator_t1"},
+		{sourceID: "equipment_petgear_g_rl1", targetID: "scanner_t1"},
+		{sourceID: "equipment_aiprotocol_ai_r1", targetID: "radar_t1"},
+		{sourceID: "equipment_extra_cpu_g3x_crgo_x", targetID: "cargo_expander_t1"},
 		{sourceID: "resource_ore_prometium", targetID: "prometium"},
 		{sourceID: "resource_ore_prometium", targetID: "raw_ore"},
 		{sourceID: "resource_ore_endurium", targetID: "endurium"},
@@ -214,7 +217,7 @@ func starterCompatibilityItemRows(sources []mappedKalaazuItemSource) ([]content.
 		}
 		definition, err := itemDefinitionWithID(source, projection.targetID)
 		switch source.Type {
-		case 14, 15, 16:
+		case 14, 15, 16, 19, 21, 22:
 			definition, err = moduleItemDefinitionWithID(source, projection.targetID)
 		case 26:
 			definition, err = materialItemDefinitionWithID(source, projection.targetID)
@@ -286,7 +289,9 @@ func mapStarterModuleRows(itemRows []DumpRow) ([]content.SnapshotRow, error) {
 	}
 	rows := make([]content.SnapshotRow, 0)
 	definitions := make(map[foundation.ItemID]modules.ModuleDefinition)
+	sourceByItemID := make(map[foundation.ItemID]kalaazuItemSource, len(sources))
 	for _, source := range sources {
+		sourceByItemID[source.ItemID] = source.Source
 		definition, ok, err := moduleDefinition(source)
 		if err != nil {
 			return nil, err
@@ -301,7 +306,7 @@ func mapStarterModuleRows(itemRows []DumpRow) ([]content.SnapshotRow, error) {
 		}
 		rows = append(rows, row)
 	}
-	compatibilityRows, err := starterCompatibilityModuleRows(definitions)
+	compatibilityRows, err := starterCompatibilityModuleRows(definitions, sourceByItemID)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +359,7 @@ func moduleDefinition(source mappedKalaazuItemSource) (modules.ModuleDefinition,
 	return module, true, nil
 }
 
-func starterCompatibilityModuleRows(definitions map[foundation.ItemID]modules.ModuleDefinition) ([]content.SnapshotRow, error) {
+func starterCompatibilityModuleRows(definitions map[foundation.ItemID]modules.ModuleDefinition, sources map[foundation.ItemID]kalaazuItemSource) ([]content.SnapshotRow, error) {
 	compatibility := []struct {
 		sourceID foundation.ItemID
 		targetID foundation.ItemID
@@ -382,19 +387,65 @@ func starterCompatibilityModuleRows(definitions map[foundation.ItemID]modules.Mo
 				definition.Energy = modules.EnergyProfile{Upkeep: 2}
 			},
 		},
+		{
+			sourceID: "equipment_petgear_g_rl1",
+			targetID: "scanner_t1",
+			mutate: func(definition *modules.ModuleDefinition) {
+				definition.StatModifiers = []modules.StatModifier{
+					{Stat: modules.StatScanPower, Kind: modules.StatModifierFlat, Value: 10},
+					{Stat: modules.StatScanRadius, Kind: modules.StatModifierFlat, Value: 2_000},
+				}
+				definition.Energy = modules.EnergyProfile{ActivationCost: 6}
+				definition.Cooldowns = []modules.Cooldown{{Key: modules.CooldownScanPulse, DurationMS: 3_000}}
+				definition.RequiredRoleLevels = []modules.RoleRequirement{{Role: modules.PilotRoleScout, Level: 1}}
+			},
+		},
+		{
+			sourceID: "equipment_aiprotocol_ai_r1",
+			targetID: "radar_t1",
+			mutate: func(definition *modules.ModuleDefinition) {
+				definition.StatModifiers = []modules.StatModifier{
+					{Stat: modules.StatRadarRange, Kind: modules.StatModifierPercent, Value: 200},
+				}
+				definition.Energy = modules.EnergyProfile{Upkeep: 1}
+				definition.Cooldowns = []modules.Cooldown{{Key: modules.CooldownRadarSweep, DurationMS: 1_000}}
+				definition.RequiredRoleLevels = []modules.RoleRequirement{{Role: modules.PilotRoleScout, Level: 1}}
+			},
+		},
+		{
+			sourceID: "equipment_extra_cpu_g3x_crgo_x",
+			targetID: "cargo_expander_t1",
+			mutate: func(definition *modules.ModuleDefinition) {
+				definition.StatModifiers = []modules.StatModifier{
+					{Stat: modules.StatCargoCapacity, Kind: modules.StatModifierPercent, Value: 10_000},
+				}
+				definition.RequiredRoleLevels = []modules.RoleRequirement{{Role: modules.PilotRoleConstruction, Level: 1}}
+			},
+		},
 	}
 	rows := make([]content.SnapshotRow, 0, len(compatibility))
 	for _, projection := range compatibility {
-		source, ok := definitions[projection.sourceID]
+		definition, ok := definitions[projection.sourceID]
 		if !ok {
-			return nil, fmt.Errorf("starter compatibility module source %q missing", projection.sourceID)
+			source, sourceOK := sources[projection.sourceID]
+			if !sourceOK {
+				return nil, fmt.Errorf("starter compatibility module source %q missing", projection.sourceID)
+			}
+			var err error
+			definition, err = utilityModuleDefinitionWithID(source, projection.targetID)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			definition.Source = catalog.VersionedDefinition{
+				DefinitionID: catalog.DefinitionID(projection.targetID.String()),
+				Version:      modules.ModuleCatalogVersion,
+			}
+			definition.ItemID = projection.targetID
 		}
-		definition := source
-		definition.Source = catalog.VersionedDefinition{
-			DefinitionID: catalog.DefinitionID(projection.targetID.String()),
-			Version:      modules.ModuleCatalogVersion,
+		if definition.ItemID != projection.targetID {
+			return nil, fmt.Errorf("starter compatibility module source %q produced item %q, want %q", projection.sourceID, definition.ItemID, projection.targetID)
 		}
-		definition.ItemID = projection.targetID
 		projection.mutate(&definition)
 		if err := definition.Validate(); err != nil {
 			return nil, err
@@ -406,6 +457,31 @@ func starterCompatibilityModuleRows(definitions map[foundation.ItemID]modules.Mo
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+func utilityModuleDefinitionWithID(source kalaazuItemSource, itemID foundation.ItemID) (modules.ModuleDefinition, error) {
+	definition := modules.ModuleDefinition{
+		Source: catalog.VersionedDefinition{
+			DefinitionID: catalog.DefinitionID(itemID.String()),
+			Version:      modules.ModuleCatalogVersion,
+		},
+		ItemID:               itemID,
+		Name:                 source.Name,
+		Category:             modules.ModuleCategoryUtility,
+		SlotType:             modules.ModuleSlotTypeUtility,
+		Tier:                 moduleTier(source),
+		Rarity:               itemRarity(source),
+		RequiredRank:         1,
+		Durability:           modules.DurabilityProfile{Max: 100},
+		TradeFlags:           []economy.TradeFlag{economy.TradeFlagTradeable, economy.TradeFlagMarketTradeable, economy.TradeFlagDestroyable},
+		BindRules:            []economy.BindRule{economy.BindRuleOnEquip},
+		CompatibleSlotTypes:  []modules.ModuleSlotType{modules.ModuleSlotTypeUtility},
+		CompatibleCategories: []modules.ModuleCategory{modules.ModuleCategoryUtility},
+	}
+	if err := definition.Validate(); err != nil {
+		return modules.ModuleDefinition{}, err
+	}
+	return definition, nil
 }
 
 func moduleTier(source kalaazuItemSource) int {
