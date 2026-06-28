@@ -5,11 +5,14 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/discovery"
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/production"
+	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
@@ -193,6 +196,50 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 	}
 }
 
+func TestScanPulseCompletesAcceptedScanPlanetQuest(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "scan-quest@example.com", "Scan Quest")
+	acceptedQuest := acceptScanPlanetQuestForTest(t, gameServer, resolved)
+
+	raw := gatewayJSON(t, gameServer, resolved, "request-scan-quest-planet", realtime.OperationScanPulse, map[string]any{}, 1)
+	assertPayloadOmitsScannerNoFogTruth(t, "scan quest response", raw)
+	var payload struct {
+		Scan scanPulsePayload `json:"scan"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("decode scan quest response: %v", err)
+	}
+	if payload.Scan.Status != string(discovery.ScanPulseStatusPlanetDiscovered) || payload.Scan.PlanetID == "" {
+		t.Fatalf("scan quest payload = %+v, want discovered planet", payload.Scan)
+	}
+
+	events, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationScanPulse, resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("post scan quest events: %v", err)
+	}
+	seenProgressed := false
+	seenCompleted := false
+	for _, event := range events {
+		switch event.Type {
+		case realtime.EventQuestProgressed:
+			seenProgressed = true
+			assertQuestEventProgress(t, event, acceptedQuest.PlayerQuestID.String(), quests.QuestStateCompleted.String(), 1, true)
+		case realtime.EventQuestCompleted:
+			seenCompleted = true
+			assertQuestEventProgress(t, event, acceptedQuest.PlayerQuestID.String(), quests.QuestStateCompleted.String(), 1, true)
+		}
+	}
+	if !seenProgressed || !seenCompleted {
+		t.Fatalf("scan quest events = %+v, want quest progressed and completed", events)
+	}
+
+	stored := storedPlayerQuestForTest(t, gameServer, resolved.PlayerID, acceptedQuest.PlayerQuestID)
+	if stored.State != quests.QuestStateCompleted || len(stored.Progress.Objectives) != 1 ||
+		stored.Progress.Objectives[0].Current != 1 || !stored.Progress.Objectives[0].Completed {
+		t.Fatalf("stored scan quest = %+v, want completed 1/1", stored)
+	}
+}
+
 func TestScanPulseUsesActiveSeededMapScope(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
@@ -271,6 +318,78 @@ func TestScanPulseUsesActiveSeededMapScope(t *testing.T) {
 			assertScanActiveMapWorldSnapshot(t, gameServer, resolved, scanPayload.Scan.PlanetID, tc.publicMapKey, tc.requestKey)
 		})
 	}
+}
+
+func acceptScanPlanetQuestForTest(t *testing.T, gameServer *Server, resolved auth.ResolvedSession) quests.PlayerQuest {
+	t.Helper()
+	catalog := quests.MustMVPQuestCatalog()
+	template, ok := catalog.Lookup("quest_scan_planets_r1")
+	if !ok {
+		t.Fatal("quest_scan_planets_r1 missing from MVP quest catalog")
+	}
+	now := gameServer.runtime.clock.Now().UTC()
+	offer, err := quests.NewGeneratedBoardOffer(
+		"offer_scan_planet_quest",
+		resolved.PlayerID,
+		template,
+		quests.GeneratedPayload{Seed: 17},
+		quests.RewardPayload{Grants: []quests.RewardGrant{{
+			Kind:     quests.RewardKindCredits,
+			Currency: economy.CurrencyBucketCredits,
+			Amount:   1,
+		}}},
+		now.Add(-time.Minute),
+		now.Add(time.Hour),
+	)
+	if err != nil {
+		t.Fatalf("NewGeneratedBoardOffer(scan quest) = %v, want nil", err)
+	}
+	if err := gameServer.runtime.Quest.StoreGeneratedBoardOffers([]quests.GeneratedBoardOffer{offer}); err != nil {
+		t.Fatalf("StoreGeneratedBoardOffers(scan quest) = %v, want nil", err)
+	}
+
+	gameServer.runtime.mu.Lock()
+	player, err := gameServer.runtime.questBoardSnapshotLocked(resolved.PlayerID)
+	gameServer.runtime.mu.Unlock()
+	if err != nil {
+		t.Fatalf("quest board snapshot: %v", err)
+	}
+	accepted, err := gameServer.runtime.Quest.AcceptQuest(quests.AcceptQuestInput{
+		Player:  player,
+		OfferID: offer.OfferID,
+	})
+	if err != nil {
+		t.Fatalf("AcceptQuest(scan quest) = %v, want nil", err)
+	}
+	return accepted
+}
+
+func assertQuestEventProgress(t *testing.T, event realtime.EventEnvelope, questID string, wantState string, wantCurrent int64, wantCompleted bool) {
+	t.Helper()
+	var payload questPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatalf("decode %s quest event: %v", event.Type, err)
+	}
+	if payload.QuestID != questID || payload.State != wantState || len(payload.Objectives) != 1 ||
+		payload.Objectives[0].Current != wantCurrent || payload.Objectives[0].Completed != wantCompleted {
+		t.Fatalf("%s payload = %+v, want quest %s state %s progress %d completed %t",
+			event.Type, payload, questID, wantState, wantCurrent, wantCompleted)
+	}
+}
+
+func storedPlayerQuestForTest(t *testing.T, gameServer *Server, playerID foundation.PlayerID, questID foundation.QuestID) quests.PlayerQuest {
+	t.Helper()
+	playerQuests, err := gameServer.runtime.Quest.PlayerQuests(playerID)
+	if err != nil {
+		t.Fatalf("PlayerQuests() = %v, want nil", err)
+	}
+	for _, quest := range playerQuests {
+		if quest.PlayerQuestID == questID {
+			return quest
+		}
+	}
+	t.Fatalf("quest %q not found in %+v", questID, playerQuests)
+	return quests.PlayerQuest{}
 }
 
 func TestPlanetDetailRejectsHiddenPlanetWithSafeError(t *testing.T) {

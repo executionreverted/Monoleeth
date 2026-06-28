@@ -352,14 +352,69 @@ func questDomainEvent(t *testing.T, eventID foundation.EventID, eventType string
 	return events.NewEventEnvelope(eventID, eventType, rawPayload, questEventTime.UnixMilli(), 1)
 }
 
+func TestConsumeScanCompletedProgressesMatchingScanQuestIdempotently(t *testing.T) {
+	fixture := newConsumerQuestFixture(t,
+		consumerTemplate("quest_scan_planet_consumer", QuestTypeScan, scanObjective("scan_planet", ScanTargetPlanet, 1)),
+		consumerTemplate("quest_scan_signal_consumer", QuestTypeScan, scanObjective("scan_signal", ScanTargetSignal, 3)),
+	)
+	player := validBoardGenerationInput(t, fixture.catalog).Player
+	planetQuest := acceptConsumerQuest(t, fixture, player, "quest_scan_planet_consumer", "scan_planet")
+	signalQuest := acceptConsumerQuest(t, fixture, player, "quest_scan_signal_consumer", "scan_signal")
+
+	fixture.clock.Advance(time.Minute)
+	updated, err := fixture.service.ConsumeScanCompleted(ScanCompletedInput{
+		EventID:          "event_scan_planet_1",
+		ProgressEventKey: QuestProgressEventKey("scan.planet_discovered:" + player.PlayerID.String() + ":planet_alpha"),
+		PlayerID:         player.PlayerID,
+		TargetSignalType: "planet",
+	})
+	if err != nil {
+		t.Fatalf("ConsumeScanCompleted() = %v, want nil", err)
+	}
+	if len(updated) != 1 || updated[0].PlayerQuestID != planetQuest.PlayerQuestID || updated[0].State != QuestStateCompleted {
+		t.Fatalf("updated quests = %#v, want completed scan quest %q", updated, planetQuest.PlayerQuestID)
+	}
+	assertStoredQuestProgress(t, fixture, player.PlayerID, planetQuest.PlayerQuestID, QuestStateCompleted, 1, true)
+	assertStoredQuestProgress(t, fixture, player.PlayerID, signalQuest.PlayerQuestID, QuestStateAccepted, 0, false)
+
+	duplicate, err := fixture.service.ConsumeScanCompleted(ScanCompletedInput{
+		EventID:          "event_scan_planet_retry",
+		ProgressEventKey: QuestProgressEventKey("scan.planet_discovered:" + player.PlayerID.String() + ":planet_alpha"),
+		PlayerID:         player.PlayerID,
+		TargetSignalType: "planet",
+	})
+	if err != nil {
+		t.Fatalf("duplicate ConsumeScanCompleted() = %v, want nil", err)
+	}
+	if len(duplicate) != 0 {
+		t.Fatalf("duplicate scan updated quests len = %d, want 0", len(duplicate))
+	}
+	assertStoredQuestProgress(t, fixture, player.PlayerID, planetQuest.PlayerQuestID, QuestStateCompleted, 1, true)
+
+	secondPlayer := player
+	secondPlayer.PlayerID = "player_scan_second"
+	secondQuest := acceptConsumerQuest(t, fixture, secondPlayer, "quest_scan_planet_consumer", "scan_planet_second")
+	secondUpdated, err := fixture.service.ConsumeScanCompleted(ScanCompletedInput{
+		EventID:          "event_scan_planet_second",
+		ProgressEventKey: QuestProgressEventKey("scan.planet_discovered:" + secondPlayer.PlayerID.String() + ":planet_alpha"),
+		PlayerID:         secondPlayer.PlayerID,
+		TargetSignalType: "planet",
+	})
+	if err != nil {
+		t.Fatalf("second player ConsumeScanCompleted() = %v, want nil", err)
+	}
+	if len(secondUpdated) != 1 || secondUpdated[0].PlayerQuestID != secondQuest.PlayerQuestID {
+		t.Fatalf("second player updated quests = %#v, want %q", secondUpdated, secondQuest.PlayerQuestID)
+	}
+	assertStoredQuestProgress(t, fixture, secondPlayer.PlayerID, secondQuest.PlayerQuestID, QuestStateCompleted, 1, true)
+}
+
 func TestSkeletonConsumersValidateAndNoopSafely(t *testing.T) {
 	fixture := newConsumerQuestFixture(t,
-		consumerTemplate("quest_scan_consumer", QuestTypeScan, scanObjective("scan_planet", ScanTargetPlanet, 1)),
 		consumerTemplate("quest_build_consumer", QuestTypeBuild, buildObjective("build_extractor", "extractor_t1", 1)),
 		consumerTemplate("quest_deliver_consumer", QuestTypeDeliver, deliverObjective("deliver_iron", "iron_ore", 5, DeliveryTargetStation, "station_frontier")),
 	)
 	player := validBoardGenerationInput(t, fixture.catalog).Player
-	scanQuest := acceptConsumerQuest(t, fixture, player, "quest_scan_consumer", "scan")
 	buildQuest := acceptConsumerQuest(t, fixture, player, "quest_build_consumer", "build")
 	deliverQuest := acceptConsumerQuest(t, fixture, player, "quest_deliver_consumer", "deliver")
 
@@ -367,16 +422,6 @@ func TestSkeletonConsumersValidateAndNoopSafely(t *testing.T) {
 		name    string
 		consume func() ([]PlayerQuest, error)
 	}{
-		{
-			name: "scan",
-			consume: func() ([]PlayerQuest, error) {
-				return fixture.service.ConsumeScanCompleted(ScanCompletedInput{
-					EventID:          "event_scan_1",
-					PlayerID:         player.PlayerID,
-					TargetSignalType: "planet",
-				})
-			},
-		},
 		{
 			name: "build",
 			consume: func() ([]PlayerQuest, error) {
@@ -410,6 +455,8 @@ func TestSkeletonConsumersValidateAndNoopSafely(t *testing.T) {
 			t.Fatalf("%s skeleton updated quests len = %d, want 0", test.name, len(updated))
 		}
 	}
+	assertStoredQuestProgress(t, fixture, player.PlayerID, buildQuest.PlayerQuestID, QuestStateAccepted, 0, false)
+	assertStoredQuestProgress(t, fixture, player.PlayerID, deliverQuest.PlayerQuestID, QuestStateAccepted, 0, false)
 
 	invalidConsumers := []struct {
 		name    string
@@ -451,7 +498,6 @@ func TestSkeletonConsumersValidateAndNoopSafely(t *testing.T) {
 		}
 	}
 
-	assertStoredQuestProgress(t, fixture, player.PlayerID, scanQuest.PlayerQuestID, QuestStateAccepted, 0, false)
 	assertStoredQuestProgress(t, fixture, player.PlayerID, buildQuest.PlayerQuestID, QuestStateAccepted, 0, false)
 	assertStoredQuestProgress(t, fixture, player.PlayerID, deliverQuest.PlayerQuestID, QuestStateAccepted, 0, false)
 }

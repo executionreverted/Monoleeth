@@ -10,6 +10,7 @@ import (
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/production"
+	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
 	worldmaps "gameproject/internal/game/world/maps"
 )
@@ -213,6 +214,10 @@ func (runtime *Runtime) handleScanPulse(ctx realtime.CommandContext, request rea
 	if err := runtime.validateScanPulseMapGuard(guard); err != nil {
 		return nil, err
 	}
+	questUpdates, err := runtime.consumeScanQuestProgress(ctx.PlayerID, result)
+	if err != nil {
+		return nil, domainErrorForQuest(err)
+	}
 
 	scan := scanPulsePayloadFromResult(result)
 	if result.Status == discovery.ScanPulseStatusPlayerRevealed {
@@ -241,10 +246,23 @@ func (runtime *Runtime) handleScanPulse(ctx realtime.CommandContext, request rea
 	if err := runtime.queueScanEvents(guard, scan, &knownPlanets, &minimap); err != nil {
 		return nil, err
 	}
+	runtime.queueQuestProgressEvents(authSessionID(ctx.SessionID), questUpdates)
 	return marshalPayload(map[string]any{
 		"scan":          scan,
 		"known_planets": knownPlanets,
 		"progression":   progressionPayload(progressionSnapshot),
+	})
+}
+
+func (runtime *Runtime) consumeScanQuestProgress(playerID foundation.PlayerID, result discovery.ResolveScanPulseResult) ([]quests.PlayerQuest, error) {
+	if result.Status != discovery.ScanPulseStatusPlanetDiscovered || result.PlanetID.IsZero() {
+		return nil, nil
+	}
+	return runtime.Quest.ConsumeScanCompleted(quests.ScanCompletedInput{
+		EventID:          foundation.EventID("event-scan-planet-" + playerID.String() + "-" + result.PlanetID.String()),
+		ProgressEventKey: quests.QuestProgressEventKey("scan.planet_discovered:" + playerID.String() + ":" + result.PlanetID.String()),
+		PlayerID:         playerID,
+		TargetSignalType: "planet",
 	})
 }
 

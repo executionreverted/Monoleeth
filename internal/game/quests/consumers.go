@@ -59,13 +59,22 @@ func (service *QuestService) ConsumeCraftJobCompleted(input CraftJobCompletedInp
 	})
 }
 
-// ConsumeScanCompleted validates the server scanner event shape and no-ops
-// until the authoritative scanner provider is available.
+// ConsumeScanCompleted consumes a validated scanner event and progresses
+// matching active scan quests for the event player.
 func (service *QuestService) ConsumeScanCompleted(input ScanCompletedInput) ([]PlayerQuest, error) {
 	if err := input.Validate(); err != nil {
 		return nil, err
 	}
-	return nil, nil
+	eventKey := questProgressEventKey(input.EventID, input.ProgressEventKey)
+	return service.consumeProgressEvent(eventKey, input.PlayerID, func(objective Objective) (int64, bool) {
+		if objective.Kind != ObjectiveKindScan || objective.Scan == nil {
+			return 0, false
+		}
+		if objective.Scan.TargetSignalType != input.TargetSignalType {
+			return 0, false
+		}
+		return 1, true
+	})
 }
 
 // ConsumeBuildingCompleted validates the server building event shape and no-ops

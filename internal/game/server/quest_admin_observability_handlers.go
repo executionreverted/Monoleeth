@@ -929,6 +929,15 @@ func (runtime *Runtime) queueQuestProgressEventsLocked(sessionID auth.SessionID,
 	}
 }
 
+func (runtime *Runtime) queueQuestProgressEvents(sessionID auth.SessionID, updated []quests.PlayerQuest) {
+	if len(updated) == 0 {
+		return
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	runtime.queueQuestProgressEventsLocked(sessionID, updated)
+}
+
 func (runtime *Runtime) adminPlayerInspectionPayload(playerID foundation.PlayerID, targetLabel string) (adminPlayerInspectionPayload, error) {
 	inventoryReport, err := runtime.Admin.InspectPlayerInventory(playerID)
 	if err != nil {

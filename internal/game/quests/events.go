@@ -42,13 +42,13 @@ type CraftJobCompletedInput struct {
 	Quantity         foundation.Quantity   `json:"quantity"`
 }
 
-// ScanCompletedInput is the server-owned scanner skeleton event shape. The
-// consumer validates it but intentionally no-ops until the scanner provider is
-// authoritative.
+// ScanCompletedInput is the server-owned scanner event shape that may progress
+// scan objectives.
 type ScanCompletedInput struct {
-	EventID          foundation.EventID  `json:"event_id"`
-	PlayerID         foundation.PlayerID `json:"player_id"`
-	TargetSignalType string              `json:"target_signal_type"`
+	EventID          foundation.EventID    `json:"event_id"`
+	ProgressEventKey QuestProgressEventKey `json:"-"`
+	PlayerID         foundation.PlayerID   `json:"player_id"`
+	TargetSignalType string                `json:"target_signal_type"`
 }
 
 // BuildingCompletedInput is the server-owned building skeleton event shape.
@@ -134,6 +134,9 @@ func (input CraftJobCompletedInput) Validate() error {
 // Validate reports whether input names one server scanner event.
 func (input ScanCompletedInput) Validate() error {
 	if err := validateQuestEventEnvelope(input.EventID, input.PlayerID); err != nil {
+		return err
+	}
+	if err := input.ProgressEventKey.ValidateOptional(); err != nil {
 		return err
 	}
 	if strings.TrimSpace(input.TargetSignalType) == "" {
