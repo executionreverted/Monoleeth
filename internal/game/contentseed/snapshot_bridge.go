@@ -72,6 +72,7 @@ func kalaazuDefaultRowIDs(rows kalaazu.DefaultRows) map[content.ContentType]map[
 	add(content.ContentTypeModule, rows.ModuleRows)
 	add(content.ContentTypeShip, rows.ShipRows)
 	add(content.ContentTypeShopProduct, rows.ShopProductRows)
+	add(content.ContentTypeLootTable, rows.LootTableRows)
 	add(content.ContentTypeNPCTemplate, rows.NPCTemplateRows)
 	add(content.ContentTypeSpawnArea, rows.SpawnAreaRows)
 	add(content.ContentTypeEnemyPool, rows.EnemyPoolRows)
@@ -94,8 +95,6 @@ func legacyBridgeReason(contentType content.ContentType, contentID content.Conte
 		return "Legacy ship definition retained for shop/hangar compatibility where no Kalaazu row shares this ship id.", true
 	case content.ContentTypeShopProduct:
 		return "Legacy shop product retained for existing shop/product surfaces until the early economy is fully rebalanced from Kalaazu rows.", true
-	case content.ContentTypeLootTable:
-		return "Local loot table bridge; selected Kalaazu dumps do not include loot-table roll rows.", true
 	case content.ContentTypeCraftRecipe:
 		return "Local crafting recipe bridge; selected Kalaazu dumps do not include craft recipe rows.", true
 	case content.ContentTypeProductionBuilding:

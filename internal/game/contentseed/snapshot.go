@@ -96,6 +96,7 @@ func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
 		return err
 	}
 	snapshot.ShopProducts = appendMissingSnapshotRows(snapshot.ShopProducts, rows.ShopProductRows)
+	snapshot.LootTables = rows.LootTableRows
 	snapshot.NPCTemplates = rows.NPCTemplateRows
 	snapshot.SpawnAreas = rows.SpawnAreaRows
 	snapshot.EnemyPools = rows.EnemyPoolRows

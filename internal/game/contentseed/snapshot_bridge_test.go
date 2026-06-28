@@ -71,7 +71,6 @@ func TestDefaultSnapshotLegacyBridgeReportNamesExpectedTemporaryRows(t *testing.
 		contentID   content.ContentID
 	}{
 		{content.ContentTypeShip, "starter"},
-		{content.ContentTypeLootTable, "training_drone_salvage"},
 		{content.ContentTypeCraftRecipe, "laser_alpha_t1"},
 		{content.ContentTypeScannerConfig, "scanner_config"},
 		{content.ContentTypeStarterConfig, "starter_config"},
@@ -79,6 +78,18 @@ func TestDefaultSnapshotLegacyBridgeReportNamesExpectedTemporaryRows(t *testing.
 	} {
 		if !legacyBridgeReportHasRow(report, want.contentType, want.contentID) {
 			t.Fatalf("bridge report missing expected temporary row %s/%s", want.contentType, want.contentID)
+		}
+	}
+}
+
+func TestDefaultSnapshotLegacyBridgeReportHasNoLootTableBridgeRows(t *testing.T) {
+	report, err := DefaultSnapshotLegacyBridgeReport(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("DefaultSnapshotLegacyBridgeReport() error = %v, want nil", err)
+	}
+	for _, row := range report {
+		if row.ContentType == content.ContentTypeLootTable {
+			t.Fatalf("bridge report contains loot table row %+v, want loot tables seeded from Kalaazu default rows", row)
 		}
 	}
 }

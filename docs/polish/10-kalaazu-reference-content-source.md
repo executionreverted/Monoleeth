@@ -119,15 +119,20 @@ Implemented mapping rules:
   rows become defensive generator modules with `speed`.
 - Shop: buyable Kalaazu rows become shop products and are classified as ship,
   module, or item products based on the rows imported above.
+- Loot tables: starter risk bands now use Kalaazu resource item ids from the
+  checked-in item dump. `training_drone_salvage` and `border_raider_salvage`
+  remain stable internal table ids for NPC drop-profile compatibility, but the
+  row payloads are produced by the Kalaazu default seed builder instead of the
+  local static content bundle.
 - Static bridge posture: `contentseed.DefaultSnapshotLegacyBridgeReport`
   enumerates every default snapshot row that still comes from local legacy
   content instead of Kalaazu source rows. Current temporary bridge categories
   are legacy item/module/ship/shop rows needed by starter/loadout/shop
-  compatibility, local loot tables, craft recipes, production buildings, quest
-  templates/rewards, scanner config, starter config, route policy, production
-  rules, and combat rules. Map shells, portals, NPC templates, spawn areas,
-  enemy pools, NPC drop profiles, aggro profiles, and leash profiles must remain
-  fully Kalaazu-derived.
+  compatibility, craft recipes, production buildings, quest templates/rewards,
+  scanner config, starter config, route policy, production rules, and combat
+  rules. Map shells, portals, NPC templates, spawn areas, enemy pools, NPC drop
+  profiles, aggro profiles, leash profiles, and loot tables must remain fully
+  Kalaazu-derived.
 
 This belongs to Phase 7 of:
 
