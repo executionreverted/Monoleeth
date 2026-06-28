@@ -77,6 +77,10 @@ func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
 	if err != nil {
 		return err
 	}
+	itemRows, err := kalaazu.BuildStarterItemRows(kalaazu.DefaultSeedFS())
+	if err != nil {
+		return err
+	}
 	npcRows, err := kalaazu.BuildStarterNPCRows(kalaazu.DefaultSeedFS())
 	if err != nil {
 		return err
@@ -87,7 +91,8 @@ func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
 	}
 	snapshot.Maps = mapRows.MapRows
 	snapshot.MapPortals = mapRows.PortalRows
-	snapshot.Ships = append(snapshot.Ships, shipRows...)
+	snapshot.Items = appendMissingSnapshotRows(snapshot.Items, itemRows)
+	snapshot.Ships = appendMissingSnapshotRows(snapshot.Ships, shipRows)
 	snapshot.NPCTemplates = npcRows.NPCTemplates
 	snapshot.SpawnAreas = npcRows.SpawnAreas
 	snapshot.EnemyPools = npcRows.EnemyPools
@@ -96,6 +101,22 @@ func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
 	snapshot.NPCLeashProfiles = npcRows.NPCLeashProfiles
 	snapshot.NPCEventSpawns = nil
 	return nil
+}
+
+func appendMissingSnapshotRows(existing []content.SnapshotRow, candidates []content.SnapshotRow) []content.SnapshotRow {
+	seen := make(map[content.ContentID]struct{}, len(existing)+len(candidates))
+	for _, row := range existing {
+		seen[row.ContentID] = struct{}{}
+	}
+	out := append([]content.SnapshotRow(nil), existing...)
+	for _, row := range candidates {
+		if _, exists := seen[row.ContentID]; exists {
+			continue
+		}
+		seen[row.ContentID] = struct{}{}
+		out = append(out, row)
+	}
+	return out
 }
 
 func appendServerRuleRows(snapshot *content.Snapshot, bundle content.GameplayContent) error {

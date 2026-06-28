@@ -28,6 +28,9 @@ func TestBuildMVPSnapshotUsesKalaazuStarterMapAndNPCRows(t *testing.T) {
 	if len(snapshot.MapPortals) == 0 {
 		t.Fatal("map portal rows empty, want Kalaazu portal graph")
 	}
+	if !hasSeedRow(snapshot.Items, "ammunition_laser_lcb_10") {
+		t.Fatal("ammunition_laser_lcb_10 row missing, want Kalaazu item seed appended")
+	}
 	if !hasSeedRow(snapshot.Ships, "ship_goliath") {
 		t.Fatal("ship_goliath row missing, want Kalaazu ship seed appended")
 	}

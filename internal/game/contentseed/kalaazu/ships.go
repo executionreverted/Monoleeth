@@ -70,8 +70,12 @@ type kalaazuItemSource struct {
 	KalaazuID int
 	Name      string
 	LootID    string
+	Category  int
+	Type      int
 	Price     int64
 	IsElite   bool
+	IsEvent   bool
+	IsBuyable bool
 }
 
 func decodeKalaazuItem(row DumpRow) (kalaazuItemSource, error) {
@@ -87,6 +91,14 @@ func decodeKalaazuItem(row DumpRow) (kalaazuItemSource, error) {
 	if err != nil {
 		return kalaazuItemSource{}, err
 	}
+	category, err := row.Int("category")
+	if err != nil {
+		return kalaazuItemSource{}, err
+	}
+	itemType, err := row.Int("type")
+	if err != nil {
+		return kalaazuItemSource{}, err
+	}
 	price, err := row.Int("price")
 	if err != nil {
 		return kalaazuItemSource{}, err
@@ -95,12 +107,24 @@ func decodeKalaazuItem(row DumpRow) (kalaazuItemSource, error) {
 	if err != nil {
 		return kalaazuItemSource{}, err
 	}
+	isEvent, err := row.Bool("is_event")
+	if err != nil {
+		return kalaazuItemSource{}, err
+	}
+	isBuyable, err := row.Bool("is_buyable")
+	if err != nil {
+		return kalaazuItemSource{}, err
+	}
 	return kalaazuItemSource{
 		KalaazuID: id,
 		Name:      normalizeDisplayName(name),
 		LootID:    normalizeIdentifier(lootID),
+		Category:  category,
+		Type:      itemType,
 		Price:     int64(price),
 		IsElite:   isElite,
+		IsEvent:   isEvent,
+		IsBuyable: isBuyable,
 	}, nil
 }
 
