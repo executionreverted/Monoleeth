@@ -38,7 +38,10 @@ func TestBuildMVPSnapshotUsesKalaazuStarterMapAndNPCRows(t *testing.T) {
 		t.Fatal("ship_goliath row missing, want Kalaazu ship seed appended")
 	}
 	if !hasSeedRow(snapshot.ShopProducts, "product_ship_goliath") {
-		t.Fatal("product_ship_goliath row missing, want Kalaazu shop seed appended")
+		t.Fatal("product_ship_goliath row missing, want Kalaazu shop seed")
+	}
+	if hasSeedRow(snapshot.ShopProducts, "product_laser_lens") {
+		t.Fatal("product_laser_lens row present, want default snapshot shop products fully Kalaazu-derived")
 	}
 
 	starter := requireSeedMapRow(t, snapshot.Maps, "map_1_1")

@@ -45,6 +45,9 @@ Completed and committed:
 - Task 8 bridge reduction slice: starter loot tables are now produced by the
   Kalaazu default row builder and reference Kalaazu resource item ids. The
   bridge report fails if loot table rows regress to local/static rows.
+- Task 8 bridge reduction slice: default shop products are now replaced by
+  Kalaazu buyable rows instead of appending to legacy shop rows. The bridge
+  report fails if shop products regress to local/static rows.
 
 Remaining before this plan is complete:
 

@@ -95,7 +95,7 @@ func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
 	if err := applyKalaazuStarterShipStats(snapshot, rows.ShipRows); err != nil {
 		return err
 	}
-	snapshot.ShopProducts = appendMissingSnapshotRows(snapshot.ShopProducts, rows.ShopProductRows)
+	snapshot.ShopProducts = rows.ShopProductRows
 	snapshot.LootTables = rows.LootTableRows
 	snapshot.NPCTemplates = rows.NPCTemplateRows
 	snapshot.SpawnAreas = rows.SpawnAreaRows

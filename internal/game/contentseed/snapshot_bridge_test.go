@@ -50,13 +50,14 @@ func TestDefaultSnapshotLegacyBridgeReportCoversEveryNonKalaazuRow(t *testing.T)
 		switch row.ContentType {
 		case content.ContentTypeMap,
 			content.ContentTypeMapPortal,
+			content.ContentTypeShopProduct,
 			content.ContentTypeNPCTemplate,
 			content.ContentTypeSpawnArea,
 			content.ContentTypeEnemyPool,
 			content.ContentTypeNPCDropProfile,
 			content.ContentTypeNPCAggroProfile,
 			content.ContentTypeNPCLeashProfile:
-			t.Fatalf("bridge report contains %s/%s, want map/NPC rows fully Kalaazu-derived", row.ContentType, row.ContentID)
+			t.Fatalf("bridge report contains %s/%s, want map/NPC/shop rows fully Kalaazu-derived", row.ContentType, row.ContentID)
 		}
 	}
 }

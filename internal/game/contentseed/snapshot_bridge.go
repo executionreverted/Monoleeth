@@ -93,8 +93,6 @@ func legacyBridgeReason(contentType content.ContentType, contentID content.Conte
 			return "Legacy starter ship id contract retained for loadout/session compatibility; stats are overwritten from Kalaazu Phoenix.", true
 		}
 		return "Legacy ship definition retained for shop/hangar compatibility where no Kalaazu row shares this ship id.", true
-	case content.ContentTypeShopProduct:
-		return "Legacy shop product retained for existing shop/product surfaces until the early economy is fully rebalanced from Kalaazu rows.", true
 	case content.ContentTypeCraftRecipe:
 		return "Local crafting recipe bridge; selected Kalaazu dumps do not include craft recipe rows.", true
 	case content.ContentTypeProductionBuilding:
