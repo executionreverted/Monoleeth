@@ -143,6 +143,11 @@ Implemented mapping rules:
   remain stable internal table ids for NPC drop-profile compatibility, but the
   row payloads are produced by the Kalaazu default seed builder instead of the
   local static content bundle.
+- Craft recipes: `refined_alloy_batch`, `laser_alpha_t1`, and
+  `scout_t1_unlock` are produced by the Kalaazu default seed builder over
+  Kalaazu-projected item and ship contract rows. The selected source dumps do
+  not contain craft recipe rows, so these remain explicit default design rows,
+  not runtime static catalog truth.
 - Starter config: `starter_config` is produced by the Kalaazu default seed
   builder, projecting the first Kalaazu starter enemy pool and Phoenix display
   into the existing account/session starter contracts.
@@ -156,13 +161,13 @@ Implemented mapping rules:
   enumerates every default snapshot row that still comes from local legacy
   content instead of Kalaazu source rows. The bridge is an explicit per-row
   allowlist, not a broad type-level exemption. Current temporary bridge
-  categories are craft recipes, production buildings, quest templates/rewards,
-  production rules, and combat rules. Map shells, portals, NPC templates, spawn
-  areas, enemy pools, NPC drop profiles, aggro profiles, leash profiles, ship
-  rows, shop products, loot tables, starter config, scanner config, route
-  policy, projected starter laser/shield/utility module rows, their item rows,
-  projected material item rows, and special/default item contract rows must
-  remain fully Kalaazu-derived.
+  categories are production buildings, quest templates/rewards, production
+  rules, and combat rules. Map shells, portals, NPC templates, spawn areas,
+  enemy pools, NPC drop profiles, aggro profiles, leash profiles, ship rows,
+  shop products, loot tables, craft recipes, starter config, scanner config,
+  route policy, projected starter laser/shield/utility module rows, their item
+  rows, projected material item rows, and special/default item contract rows
+  must remain fully Kalaazu-derived.
 
 This belongs to Phase 7 of:
 

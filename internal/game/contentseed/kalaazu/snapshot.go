@@ -24,6 +24,7 @@ type DefaultRows struct {
 	ShipRows          []content.SnapshotRow
 	ShopProductRows   []content.SnapshotRow
 	LootTableRows     []content.SnapshotRow
+	CraftRecipeRows   []content.SnapshotRow
 	NPCTemplateRows   []content.SnapshotRow
 	SpawnAreaRows     []content.SnapshotRow
 	EnemyPoolRows     []content.SnapshotRow
@@ -65,6 +66,13 @@ func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
 	if err != nil {
 		return DefaultRows{}, err
 	}
+	if err := requireCraftRecipeSourceRows(itemRows, shipRows); err != nil {
+		return DefaultRows{}, err
+	}
+	craftRecipeRows, err := mapCraftRecipeRows()
+	if err != nil {
+		return DefaultRows{}, err
+	}
 	npcRows, err := mapStarterNPCRows(source.Maps, source.MapNPCs, source.NPCs)
 	if err != nil {
 		return DefaultRows{}, err
@@ -89,6 +97,7 @@ func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
 		ShipRows:          shipRows,
 		ShopProductRows:   shopRows,
 		LootTableRows:     lootRows,
+		CraftRecipeRows:   craftRecipeRows,
 		NPCTemplateRows:   npcRows.NPCTemplates,
 		SpawnAreaRows:     npcRows.SpawnAreas,
 		EnemyPoolRows:     npcRows.EnemyPools,
@@ -242,6 +251,7 @@ func buildImportReport(source defaultSourceRows, rows DefaultRows) ImportReport 
 			content.ContentTypeShip:            len(rows.ShipRows),
 			content.ContentTypeShopProduct:     len(rows.ShopProductRows),
 			content.ContentTypeLootTable:       len(rows.LootTableRows),
+			content.ContentTypeCraftRecipe:     len(rows.CraftRecipeRows),
 			content.ContentTypeNPCTemplate:     len(rows.NPCTemplateRows),
 			content.ContentTypeSpawnArea:       len(rows.SpawnAreaRows),
 			content.ContentTypeEnemyPool:       len(rows.EnemyPoolRows),

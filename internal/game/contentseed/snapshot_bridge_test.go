@@ -52,6 +52,7 @@ func TestDefaultSnapshotLegacyBridgeReportCoversEveryNonKalaazuRow(t *testing.T)
 			content.ContentTypeMapPortal,
 			content.ContentTypeItem,
 			content.ContentTypeModule,
+			content.ContentTypeCraftRecipe,
 			content.ContentTypeShopProduct,
 			content.ContentTypeShip,
 			content.ContentTypeScannerConfig,
@@ -76,11 +77,26 @@ func TestDefaultSnapshotLegacyBridgeReportNamesExpectedTemporaryRows(t *testing.
 		contentType content.ContentType
 		contentID   content.ContentID
 	}{
-		{content.ContentTypeCraftRecipe, "laser_alpha_t1"},
 		{content.ContentTypeCombatRules, "combat_rules"},
 	} {
 		if !legacyBridgeReportHasRow(report, want.contentType, want.contentID) {
 			t.Fatalf("bridge report missing expected temporary row %s/%s", want.contentType, want.contentID)
+		}
+	}
+}
+
+func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeCraftRecipes(t *testing.T) {
+	report, err := DefaultSnapshotLegacyBridgeReport(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("DefaultSnapshotLegacyBridgeReport() error = %v, want nil", err)
+	}
+	for _, contentID := range []content.ContentID{
+		"refined_alloy_batch",
+		"laser_alpha_t1",
+		"scout_t1_unlock",
+	} {
+		if legacyBridgeReportHasRow(report, content.ContentTypeCraftRecipe, contentID) {
+			t.Fatalf("bridge report contains craft_recipe/%s, want Kalaazu/default recipe projection", contentID)
 		}
 	}
 }

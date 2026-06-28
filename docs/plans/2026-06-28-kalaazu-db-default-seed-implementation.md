@@ -82,6 +82,11 @@ Completed and committed:
   `helium_dust`, `planet_coordinate_scroll`, and `x_core`) are now emitted by
   the Kalaazu default row builder as explicit Kalaazu/default projections, so
   the bridge report fails if any item row regresses to local/static ownership.
+- Task 8 bridge reduction slice: starter craft recipe rows
+  `refined_alloy_batch`, `laser_alpha_t1`, and `scout_t1_unlock` are now
+  emitted by the Kalaazu default row builder over Kalaazu-projected item/ship
+  contract rows, so the bridge report fails if craft recipes regress to
+  local/static ownership.
 
 Remaining before this plan is complete:
 
