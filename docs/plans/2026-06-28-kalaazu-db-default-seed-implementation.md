@@ -37,12 +37,17 @@ Completed and committed:
   match the Kalaazu source.
 - The DarkOrbit-feel canary now proves DB-seeded Origin kill/loot pickup plus
   `1-3` visible NPCs and NPC return fire through the published content DB path.
+- Task 8 hardening slice: `DefaultSnapshotLegacyBridgeReport` now enumerates
+  every default snapshot row that is not directly produced by Kalaazu source
+  rows, with an explicit temporary reason. Tests fail if any non-Kalaazu row is
+  added without a reason or if map/NPC rows regress back to legacy/static
+  sources.
 
 Remaining before this plan is complete:
 
-- Finish Task 8 hardening: reduce the default snapshot's dependence on the
-  legacy static `DefaultGameplayContent` base rows or explicitly document every
-  remaining base row as a temporary bridge.
+- Continue Task 8 hardening by replacing the now-explicit bridge rows with
+  domain-specific Kalaazu/default rows where source data exists or new content
+  design is approved.
 - Run Task 10 full verification, including `go test ./...`, client check, and
   `git diff --check`.
 - Speed generator rows are now mapped through `modules.StatSpeed`; remaining

@@ -1201,6 +1201,13 @@ Task 001 release proof must be rebuilt through
   uses `combat.state` keepalives so the authenticated WebSocket remains open
   during the longer real-content kill. Source:
   `client/tests/e2e/phase11-darkorbit-feel-flow.mjs`.
+- [ ] Replace remaining explicit Kalaazu default-seed legacy bridge rows.
+  `contentseed.DefaultSnapshotLegacyBridgeReport` now makes every non-Kalaazu
+  default snapshot row explicit and tested, but item/module/ship/shop
+  compatibility rows, loot tables, crafting, production, quests, scanner config,
+  starter config, route policy, production rules, and combat rules still need
+  domain-owned Kalaazu/default replacements. Source:
+  `internal/game/contentseed/snapshot_bridge.go`.
 - [x] Wire realtime gateway request handling to authenticated session and
   server-side player resolution. `realtime.Gateway` now decodes request
   envelopes, resolves `CommandContext` through a server-side session resolver,
