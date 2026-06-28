@@ -7,13 +7,14 @@ import (
 
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/content"
+	"gameproject/internal/game/contentseed/kalaazu"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/quests"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
 )
 
-const MVPSnapshotVersion = "content_old_darkorbit_2009_seed_v1"
+const MVPSnapshotVersion = "content_kalaazu_starter_seed_v1"
 
 // BuildMVPSnapshot compiles the current validated seed bundle into deterministic
 // CMS snapshot rows for first-run contentdb publishing.
@@ -62,9 +63,33 @@ func appendCoreRows(snapshot *content.Snapshot, bundle content.GameplayContent) 
 	if err := appendMapNPCRows(snapshot, bundle); err != nil {
 		return err
 	}
+	if err := applyKalaazuStarterRows(snapshot); err != nil {
+		return err
+	}
 	if err := appendServerRuleRows(snapshot, bundle); err != nil {
 		return err
 	}
+	return nil
+}
+
+func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
+	mapRows, err := kalaazu.BuildStarterMapRows(kalaazu.DefaultSeedFS())
+	if err != nil {
+		return err
+	}
+	npcRows, err := kalaazu.BuildStarterNPCRows(kalaazu.DefaultSeedFS())
+	if err != nil {
+		return err
+	}
+	snapshot.Maps = mapRows.MapRows
+	snapshot.MapPortals = mapRows.PortalRows
+	snapshot.NPCTemplates = npcRows.NPCTemplates
+	snapshot.SpawnAreas = npcRows.SpawnAreas
+	snapshot.EnemyPools = npcRows.EnemyPools
+	snapshot.NPCDropProfiles = npcRows.NPCDropProfiles
+	snapshot.NPCAggroProfiles = npcRows.NPCAggroProfiles
+	snapshot.NPCLeashProfiles = npcRows.NPCLeashProfiles
+	snapshot.NPCEventSpawns = nil
 	return nil
 }
 
