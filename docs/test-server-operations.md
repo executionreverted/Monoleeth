@@ -167,6 +167,18 @@ playable loop:
 - claim rank eligibility through Progression
 - access to the seeded public maps and portals
 
+For local no-DB playtests, `scripts/run_playtest_server.sh` also defaults to
+`GAME_DISABLE_AUTH_ATTEMPT_LIMIT=true` and `GAME_DEV_ACCOUNT_SEED=true`. This
+seeds two unsafe dev-only accounts with 100k credits:
+
+```text
+pilot1@example.com / dev-password
+pilot2@example.com / dev-password
+```
+
+Disable them with `GAME_DEV_ACCOUNT_SEED=false`, or override the password and
+credit target with `GAME_DEV_ACCOUNT_PASSWORD` and `GAME_DEV_ACCOUNT_CREDITS`.
+
 This seed is an onboarding aid, not a production economy rule. Do not enable
 `GAME_E2E_PLANET_CLAIM_SEED`, `GAME_E2E_ROUTE_SEED`, or
 `GAME_E2E_SCAN_NO_PLANET_SEED` on the test server. Those flags are for local

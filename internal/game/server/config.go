@@ -18,23 +18,29 @@ import (
 )
 
 const (
-	EnvGameEnv             = "GAME_ENV"
-	EnvServerAddr          = "GAME_SERVER_ADDR"
-	EnvAllowedOrigins      = "GAME_ALLOWED_ORIGINS"
-	EnvAllowMissingOrigin  = "GAME_ALLOW_MISSING_ORIGIN"
-	EnvCookieSecure        = "GAME_COOKIE_SECURE"
-	EnvClientStaticDir     = "GAME_CLIENT_STATIC_DIR"
-	EnvMetricsToken        = "GAME_METRICS_TOKEN"
-	EnvPlaytestSeed        = "GAME_PLAYTEST_SEED"
-	EnvDevMode             = "GAME_DEV_MODE"
-	EnvCoreStoreMode       = "GAME_CORE_STORE_MODE"
-	EnvE2EPlanetClaimSeed  = "GAME_E2E_PLANET_CLAIM_SEED"
-	EnvE2EPlanetClaimCores = "GAME_E2E_PLANET_CLAIM_X_CORES"
-	EnvE2ERouteSeed        = "GAME_E2E_ROUTE_SEED"
-	EnvE2EScanNoPlanetSeed = "GAME_E2E_SCAN_NO_PLANET_SEED"
-	defaultServerAddr      = ":8080"
-	defaultSocketReadLimit = 64 * 1024
-	defaultE2EClaimCores   = 1
+	EnvGameEnv                = "GAME_ENV"
+	EnvServerAddr             = "GAME_SERVER_ADDR"
+	EnvAllowedOrigins         = "GAME_ALLOWED_ORIGINS"
+	EnvAllowMissingOrigin     = "GAME_ALLOW_MISSING_ORIGIN"
+	EnvCookieSecure           = "GAME_COOKIE_SECURE"
+	EnvClientStaticDir        = "GAME_CLIENT_STATIC_DIR"
+	EnvMetricsToken           = "GAME_METRICS_TOKEN"
+	EnvPlaytestSeed           = "GAME_PLAYTEST_SEED"
+	EnvDevMode                = "GAME_DEV_MODE"
+	EnvCoreStoreMode          = "GAME_CORE_STORE_MODE"
+	EnvE2EPlanetClaimSeed     = "GAME_E2E_PLANET_CLAIM_SEED"
+	EnvE2EPlanetClaimCores    = "GAME_E2E_PLANET_CLAIM_X_CORES"
+	EnvE2ERouteSeed           = "GAME_E2E_ROUTE_SEED"
+	EnvE2EScanNoPlanetSeed    = "GAME_E2E_SCAN_NO_PLANET_SEED"
+	EnvDisableAuthAttempts    = "GAME_DISABLE_AUTH_ATTEMPT_LIMIT"
+	EnvDevAccountSeed         = "GAME_DEV_ACCOUNT_SEED"
+	EnvDevAccountPassword     = "GAME_DEV_ACCOUNT_PASSWORD"
+	EnvDevAccountCredits      = "GAME_DEV_ACCOUNT_CREDITS"
+	defaultServerAddr         = ":8080"
+	defaultSocketReadLimit    = 64 * 1024
+	defaultE2EClaimCores      = 1
+	defaultDevAccountCredits  = 100000
+	defaultDevAccountPassword = "dev-password"
 )
 
 type GameEnv string
@@ -60,6 +66,10 @@ type Config struct {
 	E2EPlanetClaimCores int
 	E2ERouteSeed        bool
 	E2EScanNoPlanetSeed bool
+	DisableAuthAttempts bool
+	DevAccountSeed      bool
+	DevAccountPassword  string
+	DevAccountCredits   int64
 	SessionTTL          time.Duration
 	SocketReadTimeout   time.Duration
 	SocketWriteTimeout  time.Duration
@@ -125,6 +135,10 @@ func ConfigFromEnv() Config {
 	config.E2EPlanetClaimCores = envPositiveInt(EnvE2EPlanetClaimCores, config.E2EPlanetClaimCores)
 	config.E2ERouteSeed = envBool(EnvE2ERouteSeed, config.E2ERouteSeed)
 	config.E2EScanNoPlanetSeed = envBool(EnvE2EScanNoPlanetSeed, config.E2EScanNoPlanetSeed)
+	config.DisableAuthAttempts = envBool(EnvDisableAuthAttempts, config.DisableAuthAttempts)
+	config.DevAccountSeed = envBool(EnvDevAccountSeed, config.DevAccountSeed)
+	config.DevAccountPassword = strings.TrimSpace(os.Getenv(EnvDevAccountPassword))
+	config.DevAccountCredits = int64(envPositiveInt(EnvDevAccountCredits, int(config.DevAccountCredits)))
 	config.ContentDB = contentdb.FromEnv()
 	config.CoreStoreMode = contentdb.ContentMode(strings.TrimSpace(os.Getenv(EnvCoreStoreMode)))
 	config.AdminSeed = auth.AdminSeedInput{
@@ -172,6 +186,14 @@ func (config Config) withDefaults() Config {
 	}
 	if config.E2EPlanetClaimCores <= 0 {
 		config.E2EPlanetClaimCores = defaultE2EClaimCores
+	}
+	if config.DevAccountSeed {
+		if strings.TrimSpace(config.DevAccountPassword) == "" {
+			config.DevAccountPassword = defaultDevAccountPassword
+		}
+		if config.DevAccountCredits <= 0 {
+			config.DevAccountCredits = defaultDevAccountCredits
+		}
 	}
 	if config.TickDelta <= 0 {
 		config.TickDelta = defaults.TickDelta

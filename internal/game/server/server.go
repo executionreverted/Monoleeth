@@ -49,6 +49,9 @@ func New(config Config) (*Server, error) {
 	if config.E2EScanNoPlanetSeed && !config.DevMode {
 		return nil, fmt.Errorf("%s requires %s=true", EnvE2EScanNoPlanetSeed, EnvDevMode)
 	}
+	if config.DevAccountSeed && !config.DevMode {
+		return nil, fmt.Errorf("%s requires %s=true", EnvDevAccountSeed, EnvDevMode)
+	}
 	runtime, err := NewRuntime(RuntimeConfig{
 		Clock:                  config.Clock,
 		SessionTTL:             config.SessionTTL,
@@ -64,6 +67,10 @@ func New(config Config) (*Server, error) {
 		E2EPlanetClaimCores:    config.E2EPlanetClaimCores,
 		E2ERouteSeed:           config.E2ERouteSeed,
 		E2EScanNoPlanetSeed:    config.E2EScanNoPlanetSeed,
+		DisableAuthAttempts:    config.DisableAuthAttempts,
+		DevAccountSeed:         config.DevAccountSeed,
+		DevAccountPassword:     config.DevAccountPassword,
+		DevAccountCredits:      config.DevAccountCredits,
 		AdminSeed:              config.AdminSeed,
 		Passwords:              config.PasswordHasher,
 		TracerProvider:         config.TracerProvider,

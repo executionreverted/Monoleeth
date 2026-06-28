@@ -56,9 +56,10 @@ http://127.0.0.1:8080
 ```
 
 The script runs `npm --prefix client run build`, sets
-`GAME_CLIENT_STATIC_DIR=client/dist`, `GAME_DEV_MODE=true`, and
-`GAME_PLAYTEST_SEED=true`, scans the built bundle for fixture/server-only leak
-tokens, then starts `go run ./cmd/game-server`.
+`GAME_CLIENT_STATIC_DIR=client/dist`, `GAME_DEV_MODE=true`,
+`GAME_PLAYTEST_SEED=true`, `GAME_DISABLE_AUTH_ATTEMPT_LIMIT=true`, and
+`GAME_DEV_ACCOUNT_SEED=true`, scans the built bundle for fixture/server-only
+leak tokens, then starts `go run ./cmd/game-server`.
 Override the bind address or static dir when needed:
 
 ```bash
@@ -74,6 +75,21 @@ route-test planets. Disable it with:
 
 ```bash
 GAME_PLAYTEST_SEED=false scripts/run_playtest_server.sh
+```
+
+For local playtesting, the script also seeds two unsafe dev-only accounts with
+100k credits:
+
+```text
+pilot1@example.com / dev-password
+pilot2@example.com / dev-password
+```
+
+Override the password or wallet target with `GAME_DEV_ACCOUNT_PASSWORD` and
+`GAME_DEV_ACCOUNT_CREDITS`. Disable these accounts with:
+
+```bash
+GAME_DEV_ACCOUNT_SEED=false scripts/run_playtest_server.sh
 ```
 
 `GAME_DEV_MODE=true` is the no-DB local/playtest path. For durable local runs,

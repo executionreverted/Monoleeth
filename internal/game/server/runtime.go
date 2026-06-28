@@ -88,6 +88,10 @@ type RuntimeConfig struct {
 	E2EPlanetClaimCores int
 	E2ERouteSeed        bool
 	E2EScanNoPlanetSeed bool
+	DisableAuthAttempts bool
+	DevAccountSeed      bool
+	DevAccountPassword  string
+	DevAccountCredits   int64
 	SocialModeration    social.MessageModerationHook
 	SocialChatLimiter   social.RateLimitChecker
 	AdminSeed           auth.AdminSeedInput
@@ -930,6 +934,9 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if config.E2EScanNoPlanetSeed && !config.DevMode {
 		return nil, fmt.Errorf("%s requires %s=true", EnvE2EScanNoPlanetSeed, EnvDevMode)
 	}
+	if config.DevAccountSeed && !config.DevMode {
+		return nil, fmt.Errorf("%s requires %s=true", EnvDevAccountSeed, EnvDevMode)
+	}
 	tracerProvider := config.TracerProvider
 	if tracerProvider == nil {
 		tracerProvider = trace.NewNoopTracerProvider()
@@ -964,10 +971,11 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		return nil, err
 	}
 	authService, err := auth.NewService(auth.ServiceConfig{
-		Store:          authStore,
-		Clock:          clock,
-		PasswordHasher: config.Passwords,
-		SessionTTL:     config.SessionTTL,
+		Store:           authStore,
+		Clock:           clock,
+		PasswordHasher:  config.Passwords,
+		SessionTTL:      config.SessionTTL,
+		DisableAttempts: config.DisableAuthAttempts,
 	})
 	if err != nil {
 		if authStoreCloser != nil {
@@ -1588,6 +1596,11 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	}
 	if err := runtime.seedSharedEconomy(); err != nil {
 		return nil, err
+	}
+	if config.DevAccountSeed {
+		if err := runtime.seedDevAccounts(context.Background(), config.DevAccountPassword, config.DevAccountCredits); err != nil {
+			return nil, err
+		}
 	}
 	if runtime.devMode {
 		_ = metricRecorder.SetGauge(observability.MetricDevModeEnabled, nil, 1)

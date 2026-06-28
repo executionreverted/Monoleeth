@@ -1,8 +1,11 @@
 package server
 
 import (
+	"context"
 	"testing"
 
+	"gameproject/internal/game/auth"
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/progression"
 )
@@ -43,6 +46,34 @@ func TestPlaytestSeedIgnoresE2EClaimCoreMatrixQuantity(t *testing.T) {
 	resolved := createResolvedRuntimeSession(t, gameServer, "playtest-seed-cores@example.com", "Playtest Cores")
 	if got := inventoryStackQuantityForTest(gameServer, resolved.PlayerID, "x_core"); got != 1 {
 		t.Fatalf("x_core quantity = %d, want playtest default 1", got)
+	}
+}
+
+func TestDevAccountSeedCreatesTwoAccountsWithTargetCredits(t *testing.T) {
+	gameServer, err := New(Config{
+		AllowedOrigins:      []string{testOrigin},
+		DevMode:             true,
+		DisableAuthAttempts: true,
+		DevAccountSeed:      true,
+		DevAccountPassword:  "dev-password",
+		DevAccountCredits:   100000,
+		ContentRepository:   staticContentRepositoryForTest(),
+	})
+	if err != nil {
+		t.Fatalf("New(dev account seed) error = %v, want nil", err)
+	}
+
+	for _, email := range []string{"pilot1@example.com", "pilot2@example.com"} {
+		result, err := gameServer.runtime.Auth.Login(context.Background(), auth.LoginInput{
+			Email:    email,
+			Password: "dev-password",
+		})
+		if err != nil {
+			t.Fatalf("Login(%q) error = %v, want nil", email, err)
+		}
+		if got := gameServer.runtime.Wallet.Balance(result.Session.PlayerID, economy.CurrencyBucketCredits); got != 100000 {
+			t.Fatalf("dev account %q credits = %d, want 100000", email, got)
+		}
 	}
 }
 

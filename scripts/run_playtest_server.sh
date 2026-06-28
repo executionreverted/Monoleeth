@@ -76,11 +76,17 @@ export GAME_CLIENT_STATIC_DIR="${GAME_CLIENT_STATIC_DIR:-client/dist}"
 export GAME_SERVER_ADDR="${GAME_SERVER_ADDR:-127.0.0.1:8080}"
 export GAME_DEV_MODE="${GAME_DEV_MODE:-true}"
 export GAME_PLAYTEST_SEED="${GAME_PLAYTEST_SEED:-true}"
+export GAME_DISABLE_AUTH_ATTEMPT_LIMIT="${GAME_DISABLE_AUTH_ATTEMPT_LIMIT:-true}"
+export GAME_DEV_ACCOUNT_SEED="${GAME_DEV_ACCOUNT_SEED:-true}"
+export GAME_DEV_ACCOUNT_PASSWORD="${GAME_DEV_ACCOUNT_PASSWORD:-dev-password}"
+export GAME_DEV_ACCOUNT_CREDITS="${GAME_DEV_ACCOUNT_CREDITS:-100000}"
 
 echo "Playtest client: http://${GAME_SERVER_ADDR}"
 echo "Static dir: ${GAME_CLIENT_STATIC_DIR}"
 echo "Dev mode: ${GAME_DEV_MODE}"
 echo "Playtest seed: ${GAME_PLAYTEST_SEED}"
+echo "Auth attempt limit disabled: ${GAME_DISABLE_AUTH_ATTEMPT_LIMIT}"
+echo "Dev accounts seeded: ${GAME_DEV_ACCOUNT_SEED}"
 if [[ -n "${GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR:-}" ]]; then
   echo "Published artifact dir: ${published_artifact_dir}"
 fi

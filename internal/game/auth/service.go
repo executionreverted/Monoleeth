@@ -20,6 +20,7 @@ type ServiceConfig struct {
 	SessionTTL       time.Duration
 	AttemptTracker   AuthAttemptTracker
 	AttemptPolicy    AuthAttemptPolicy
+	DisableAttempts  bool
 	TransitionLogger observability.AuthTransitionLogger
 }
 
@@ -80,7 +81,9 @@ func NewService(config ServiceConfig) (*Service, error) {
 		ttl = defaultSessionTTL
 	}
 	attempts := config.AttemptTracker
-	if attempts == nil {
+	if config.DisableAttempts {
+		attempts = nil
+	} else if attempts == nil {
 		attempts = NewInMemoryAuthAttemptTracker(config.AttemptPolicy)
 	}
 	return &Service{
