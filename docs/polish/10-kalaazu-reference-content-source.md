@@ -145,17 +145,20 @@ Implemented mapping rules:
 - Scanner config: `scanner_config` is produced by the Kalaazu default seed
   builder, using a Kalaazu scanner seed and map profiles over the seeded
   `1-1`, `1-2`, and `1-3` maps.
+- Route policy: `route_policy` is produced by the Kalaazu default seed builder
+  and routeable resource ids reference Kalaazu-projected material rows such as
+  `refined_alloy`.
 - Static bridge posture: `contentseed.DefaultSnapshotLegacyBridgeReport`
   enumerates every default snapshot row that still comes from local legacy
   content instead of Kalaazu source rows. The bridge is an explicit per-row
   allowlist, not a broad type-level exemption. Current temporary bridge
   categories are legacy item rows needed by special-item compatibility, craft
-  recipes, production buildings, quest templates/rewards, route policy,
-  production rules, and combat rules. Map shells, portals, NPC templates, spawn
-  areas, enemy pools, NPC drop profiles, aggro profiles, leash profiles, ship
-  rows, shop products, loot tables, starter config, scanner config, projected
-  starter laser/shield/utility module rows, their item rows, and projected
-  material item rows must remain fully Kalaazu-derived.
+  recipes, production buildings, quest templates/rewards, production rules, and
+  combat rules. Map shells, portals, NPC templates, spawn areas, enemy pools,
+  NPC drop profiles, aggro profiles, leash profiles, ship rows, shop products,
+  loot tables, starter config, scanner config, route policy, projected starter
+  laser/shield/utility module rows, their item rows, and projected material
+  item rows must remain fully Kalaazu-derived.
 
 This belongs to Phase 7 of:
 

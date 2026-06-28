@@ -27,7 +27,8 @@ func TestBuildDefaultRowsReturnsImportReportAndAllSupportedGroups(t *testing.T) 
 		rows.Report.ImportedRows[content.ContentTypeShip] != 17 ||
 		rows.Report.ImportedRows[content.ContentTypeEnemyPool] != 11 ||
 		rows.Report.ImportedRows[content.ContentTypeScannerConfig] != 1 ||
-		rows.Report.ImportedRows[content.ContentTypeStarterConfig] != 1 {
+		rows.Report.ImportedRows[content.ContentTypeStarterConfig] != 1 ||
+		rows.Report.ImportedRows[content.ContentTypeRoutePolicy] != 1 {
 		t.Fatalf("imported report = %+v, want starter maps/modules/ships/enemy pools", rows.Report.ImportedRows)
 	}
 	if len(rows.Report.UnsupportedItems) == 0 {

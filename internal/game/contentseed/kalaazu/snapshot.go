@@ -32,6 +32,7 @@ type DefaultRows struct {
 	NPCLeashRows      []content.SnapshotRow
 	ScannerConfigRows []content.SnapshotRow
 	StarterConfigRows []content.SnapshotRow
+	RoutePolicyRows   []content.SnapshotRow
 	Report            ImportReport
 }
 
@@ -76,6 +77,10 @@ func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
 	if err != nil {
 		return DefaultRows{}, err
 	}
+	routePolicyRows, err := mapRoutePolicyRows()
+	if err != nil {
+		return DefaultRows{}, err
+	}
 	rows := DefaultRows{
 		MapRows:           mapRows.MapRows,
 		MapPortalRows:     mapRows.PortalRows,
@@ -92,9 +97,19 @@ func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
 		NPCLeashRows:      npcRows.NPCLeashProfiles,
 		ScannerConfigRows: scannerConfigRows,
 		StarterConfigRows: starterConfigRows,
+		RoutePolicyRows:   routePolicyRows,
 	}
 	rows.Report = buildImportReport(source, rows)
 	return rows, nil
+}
+
+func mapRoutePolicyRows() ([]content.SnapshotRow, error) {
+	route := content.DefaultRouteContent()
+	row, err := snapshotRow("route_policy", route)
+	if err != nil {
+		return nil, err
+	}
+	return []content.SnapshotRow{row}, nil
 }
 
 func mapScannerConfigRows(mapRows []content.SnapshotRow) ([]content.SnapshotRow, error) {
@@ -235,6 +250,7 @@ func buildImportReport(source defaultSourceRows, rows DefaultRows) ImportReport 
 			content.ContentTypeNPCLeashProfile: len(rows.NPCLeashRows),
 			content.ContentTypeScannerConfig:   len(rows.ScannerConfigRows),
 			content.ContentTypeStarterConfig:   len(rows.StarterConfigRows),
+			content.ContentTypeRoutePolicy:     len(rows.RoutePolicyRows),
 		},
 		UnsupportedItems: unsupportedItemCounts(source.Items),
 	}

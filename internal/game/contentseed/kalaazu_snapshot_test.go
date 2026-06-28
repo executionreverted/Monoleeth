@@ -75,6 +75,10 @@ func TestBuildMVPSnapshotUsesKalaazuStarterMapAndNPCRows(t *testing.T) {
 		scannerConfig.MapProfiles[0].SpawnBudget != 4 {
 		t.Fatalf("scanner config = %+v, want Kalaazu scanner seed over starter maps", scannerConfig)
 	}
+	routePolicy := requireRoutePolicyRow(t, snapshot.RoutePolicies)
+	if len(routePolicy.RouteableItemIDs) != 1 || routePolicy.RouteableItemIDs[0] != "refined_alloy" {
+		t.Fatalf("route policy routeable items = %+v, want Kalaazu-projected refined_alloy", routePolicy.RouteableItemIDs)
+	}
 
 	goliath := requireSeedShipRow(t, snapshot.Ships, "ship_goliath")
 	if goliath.BaseStats.HP != 256000 || goliath.Slots.Offensive != 15 || goliath.Slots.Defensive != 15 {
@@ -116,6 +120,22 @@ func requireScannerConfigRow(t *testing.T, rows []content.SnapshotRow) content.S
 	}
 	t.Fatal("scanner config row missing")
 	return content.ScannerContent{}
+}
+
+func requireRoutePolicyRow(t *testing.T, rows []content.SnapshotRow) content.RouteContent {
+	t.Helper()
+	for _, row := range rows {
+		if row.ContentID != "route_policy" {
+			continue
+		}
+		var route content.RouteContent
+		if err := json.Unmarshal(row.DataJSON, &route); err != nil {
+			t.Fatalf("route policy row %q json error = %v", row.ContentID, err)
+		}
+		return route
+	}
+	t.Fatal("route policy row missing")
+	return content.RouteContent{}
 }
 
 func requireSeedMapRow(t *testing.T, rows []content.SnapshotRow, contentID content.ContentID) seedMapRow {
