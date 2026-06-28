@@ -630,11 +630,15 @@ export function adminOpsBlock(state: ClientState): string {
 }
 
 export function targetPanel(state: ClientState, serverNow: number | null = Date.now()): string {
-  const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
+  const target = primaryTarget(state);
   const actions = quickActionMap(state, serverNow);
   const laser = actions.laser;
   const loot = actions.gather;
   const targetLabel = target?.display?.label ?? target?.entity_id ?? '';
+  const activeCombatTarget = isActiveCombatTarget(state, target);
+  const targetKind = target
+    ? `${publicEntityType(target.entity_type)}${activeCombatTarget ? ' / active lock' : ''}`
+    : '';
   const distance = target ? distanceToTarget(state, target.entity_id, serverNow) : null;
   const knownLoot = target ? state.knownLoot[target.entity_id] : null;
   const targetActions = targetActionButtons(target, laser, loot, selfEntity(state.visibleEntities));
@@ -646,7 +650,7 @@ export function targetPanel(state: ClientState, serverNow: number | null = Date.
              <span class="target-lock__mark"></span>
              <div>
                <div class="target-name">${escapeHTML(targetLabel)}</div>
-               <div class="target-kind">${escapeHTML(publicEntityType(target.entity_type))}</div>
+               <div class="target-kind">${escapeHTML(targetKind)}</div>
              </div>
            </div>
            <div class="meta-row"><span>Type</span><strong>${escapeHTML(publicEntityType(target.entity_type))}</strong></div>
@@ -910,7 +914,7 @@ export function quickActionMap(state: ClientState, serverNow: number | null): Re
 }
 
 export function quickActionStates(state: ClientState, serverNow: number | null): QuickActionState[] {
-  const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
+  const target = primaryTarget(state);
   const loot = lootActionState(state, target, serverNow);
   return [
     liveQuickAction('laser', 'fire', 1, '1', laserIconURL, laserCommandOp(state, target), laserActionState(state, target, serverNow)),
@@ -920,6 +924,23 @@ export function quickActionStates(state: ClientState, serverNow: number | null):
     lockedQuickAction('warp', 'warp', 5, '5', warpIconURL, 'Warp', 'Warp drive is not installed yet.'),
     liveQuickAction('gather', 'loot', 6, '6', gatherIconURL, lootCommandOp(loot), loot),
   ];
+}
+
+function primaryTarget(state: ClientState): VisibleEntity | null {
+  if (state.selectedTargetID) {
+    const selected = state.visibleEntities[state.selectedTargetID];
+    if (selected) {
+      return selected;
+    }
+  }
+  if (state.combatEngagement.active && state.combatEngagement.targetID) {
+    return state.visibleEntities[state.combatEngagement.targetID] ?? null;
+  }
+  return null;
+}
+
+function isActiveCombatTarget(state: ClientState, target: VisibleEntity | null): boolean {
+  return state.combatEngagement.active && target?.entity_id === state.combatEngagement.targetID;
 }
 
 export function liveQuickAction(

@@ -746,6 +746,30 @@ describe('actionBar', () => {
     expect(targetHTML).toMatch(/data-action="fire"[^>]*>Stop/);
   });
 
+  test('target panel and laser slot fall back to the active combat target when manual selection is empty', () => {
+    const state = combatReadyState();
+    state.selectedTargetID = null;
+    state.combatEngagement = {
+      active: true,
+      targetID: 'npc-1',
+      skillID: 'basic_laser',
+      startedAt: 19_000,
+      nextFireAt: 20_600,
+      lastStopReason: null,
+    };
+
+    const barHTML = actionBar(state, 20_000);
+    const laserSlot = actionSlot(barHTML, 'laser');
+    const targetHTML = targetPanel(state, 20_000);
+
+    expect(targetHTML).toContain('Training Drone');
+    expect(targetHTML).toContain('active lock');
+    expect(targetHTML).not.toContain('Select a contact.');
+    expect(targetHTML).toMatch(/data-action="fire"[^>]*>Stop/);
+    expect(laserSlot).toContain('data-command-op="combat.stop_attack"');
+    expect(laserSlot).toContain('Stop');
+  });
+
   test('target panel exposes direct enter action for visible in-range portals', () => {
     const state = withCurrentMap(combatReadyState(), {
       visible_portals: [

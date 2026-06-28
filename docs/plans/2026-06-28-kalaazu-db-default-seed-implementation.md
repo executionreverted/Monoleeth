@@ -110,13 +110,17 @@ Completed and committed:
   metadata. Unsupported equipment counts now exclude mapped rocket/repair
   families and continue to track unmapped trade-drone/special-CPU families.
 
-Remaining before this plan is complete:
+Task 10 verification completed on 2026-06-28:
 
-- Run Task 10 full verification, including `go test ./...`, client check, and
-  `git diff --check`.
+- `go test ./...`
+- `npm --cache /tmp/gameproject-npm-cache --prefix client run check`
+- `git diff --check`
+
+Remaining follow-up, outside this default-seed completion:
+
 - Speed generator, rocket launcher, and repair bot rows now map into typed
-  module stats; remaining unsupported equipment rows are still counted in the
-  import report.
+  module stats; remaining unsupported trade-drone and special-CPU equipment
+  rows are still counted in the import report.
 
 ---
 

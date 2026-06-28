@@ -195,7 +195,11 @@ proves a real DB-seeded browser account can enter attack stance, emit minimized
 `combat.start_attack`, receive server-driven shot cadence while moving, kill a
 default-data Origin NPC, receive and pick up server-created loot into cargo,
 travel from `1-1` through `1-2` into `1-3`, acquire a fresh current-map `1-3`
-NPC, take NPC return-fire damage, and pass smoke/WebSocket/log leak scans.
+NPC, take NPC return-fire damage, capture desktop and mobile screenshots, and
+pass smoke/WebSocket/log leak scans.
 
-Still missing for this document: mobile screenshot evidence and a scripted
-10-minute session note.
+The proof review lives in
+`docs/polish/11-darkorbit-feel-browser-proof-review.md`. Still missing for
+this document: a default scripted 10-minute session note. The e2e can run that
+loop with `DARKORBIT_FEEL_LONG_RUN_MS=600000`, but the fast gate does not enable
+it by default.

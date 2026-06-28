@@ -35,8 +35,26 @@ Current browser canary slice:
   hidden/fake data tokens. `DARKORBIT_FEEL_LONG_RUN_MS=600000` enables the
   scripted 10-minute observation loop without slowing the default gate.
 - The default-data kill/loot browser proof and mobile screenshot proof are now
-  covered. The remaining Task 8 gap is broader human polish review over the
-  generated screenshots/run notes.
+  covered. A browser proof review was recorded in
+  `docs/polish/11-darkorbit-feel-browser-proof-review.md`.
+- Follow-up HUD polish from that review: when manual target selection is empty
+  but the server-owned combat engagement is still active, the target panel and
+  laser hotbar now fall back to the visible active engagement target. This keeps
+  the combat lock readable and exposes Stop instead of showing an empty target
+  panel during a real fight.
+- Follow-up HUD polish from user review: the topbar no longer duplicates Stop,
+  Sync, Mail, Chat, Social, and Logout controls in prime combat space. It is now
+  a compact one-row server-state strip while menu panels keep the management
+  surface.
+- Browser-proof hardening: the realtime client now distinguishes the server's
+  `session invalid` WebSocket policy close from other policy closes such as
+  `client too slow`, so dense AOI pressure can reconnect instead of being
+  misreported as an auth expiry.
+
+Remaining before this plan is complete:
+
+- Run or schedule the opt-in 10-minute browser observation loop
+  (`DARKORBIT_FEEL_LONG_RUN_MS=600000`) and record its human playtest notes.
 
 ## Phase 0: Guardrails
 
