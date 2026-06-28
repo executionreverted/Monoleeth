@@ -51,6 +51,9 @@ Completed and committed:
 - Task 8 bridge reduction slice: starter compatibility module ids
   `laser_alpha_t1` and `shield_generator_t1` are now projected from Kalaazu
   LF-1 and SG3N-A01 rows while preserving existing starter/loadout item ids.
+- Task 8 bridge reduction slice: legacy ship contract ids `starter`,
+  `fighter_t1`, `scout_t1`, and `hauler_t1` are now projected from Kalaazu
+  Phoenix, Goliath, Vengeance, and BigBoy rows.
 
 Remaining before this plan is complete:
 

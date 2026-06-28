@@ -51,13 +51,14 @@ func TestDefaultSnapshotLegacyBridgeReportCoversEveryNonKalaazuRow(t *testing.T)
 		case content.ContentTypeMap,
 			content.ContentTypeMapPortal,
 			content.ContentTypeShopProduct,
+			content.ContentTypeShip,
 			content.ContentTypeNPCTemplate,
 			content.ContentTypeSpawnArea,
 			content.ContentTypeEnemyPool,
 			content.ContentTypeNPCDropProfile,
 			content.ContentTypeNPCAggroProfile,
 			content.ContentTypeNPCLeashProfile:
-			t.Fatalf("bridge report contains %s/%s, want map/NPC/shop rows fully Kalaazu-derived", row.ContentType, row.ContentID)
+			t.Fatalf("bridge report contains %s/%s, want map/NPC/shop/ship rows fully Kalaazu-derived", row.ContentType, row.ContentID)
 		}
 	}
 }
@@ -71,7 +72,6 @@ func TestDefaultSnapshotLegacyBridgeReportNamesExpectedTemporaryRows(t *testing.
 		contentType content.ContentType
 		contentID   content.ContentID
 	}{
-		{content.ContentTypeShip, "starter"},
 		{content.ContentTypeCraftRecipe, "laser_alpha_t1"},
 		{content.ContentTypeScannerConfig, "scanner_config"},
 		{content.ContentTypeStarterConfig, "starter_config"},

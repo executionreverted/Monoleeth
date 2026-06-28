@@ -51,18 +51,25 @@ func mapStarterShipRows(itemRows []DumpRow, shipRows []DumpRow) ([]content.Snaps
 	}
 	sort.Slice(sources, func(i, j int) bool { return sources[i].KalaazuID < sources[j].KalaazuID })
 
-	rows := make([]content.SnapshotRow, 0, len(sources))
+	definitions := make(map[foundation.ShipID]ships.ShipDefinition, len(sources))
+	rows := make([]content.SnapshotRow, 0, len(sources)+4)
 	for _, source := range sources {
 		definition, err := shipDefinition(source)
 		if err != nil {
 			return nil, err
 		}
+		definitions[definition.ShipID] = definition
 		row, err := snapshotRow(definition.ShipID.String(), definition)
 		if err != nil {
 			return nil, err
 		}
 		rows = append(rows, row)
 	}
+	compatibilityRows, err := starterCompatibilityShipRows(definitions)
+	if err != nil {
+		return nil, err
+	}
+	rows = append(rows, compatibilityRows...)
 	return rows, nil
 }
 
@@ -257,6 +264,42 @@ func shipDefinition(source kalaazuShipSource) (ships.ShipDefinition, error) {
 		return ships.ShipDefinition{}, err
 	}
 	return definition, nil
+}
+
+func starterCompatibilityShipRows(definitions map[foundation.ShipID]ships.ShipDefinition) ([]content.SnapshotRow, error) {
+	compatibility := []struct {
+		sourceID foundation.ShipID
+		targetID foundation.ShipID
+		role     ships.ShipRole
+	}{
+		{sourceID: "ship_phoenix", targetID: ships.ShipIDStarter, role: ships.ShipRoleSupport},
+		{sourceID: "ship_goliath", targetID: ships.ShipIDFighterT1, role: ships.ShipRoleFighter},
+		{sourceID: "ship_vengeance", targetID: ships.ShipIDScoutT1, role: ships.ShipRoleScout},
+		{sourceID: "ship_bigboy", targetID: ships.ShipIDHaulerT1, role: ships.ShipRoleHauler},
+	}
+	rows := make([]content.SnapshotRow, 0, len(compatibility))
+	for _, projection := range compatibility {
+		source, ok := definitions[projection.sourceID]
+		if !ok {
+			return nil, fmt.Errorf("starter compatibility ship source %q missing", projection.sourceID)
+		}
+		definition := source
+		definition.Source = catalog.VersionedDefinition{
+			DefinitionID: catalog.DefinitionID(projection.targetID.String()),
+			Version:      kalaazuShipCatalogVersion,
+		}
+		definition.ShipID = projection.targetID
+		definition.Role = projection.role
+		if err := definition.Validate(); err != nil {
+			return nil, err
+		}
+		row, err := snapshotRow(definition.ShipID.String(), definition)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
 }
 
 func shipTier(source kalaazuShipSource) int {

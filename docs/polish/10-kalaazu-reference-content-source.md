@@ -113,7 +113,10 @@ Implemented mapping rules:
   dropped.
 - Ships: `ships.items_id` joins through `items.id`, producing ship rows such as
   `ship_phoenix` and `ship_goliath` with source HP, speed, cargo, laser,
-  generator, and extra-slot values.
+  generator, and extra-slot values. Legacy contract ids `starter`,
+  `fighter_t1`, `scout_t1`, and `hauler_t1` are projected from Phoenix,
+  Goliath, Vengeance, and BigBoy so existing hangar/loadout/session contracts
+  keep working while their stats and slots come from Kalaazu rows.
 - Modules: laser rows become offensive modules with `weapon_damage`; shield
   generator rows become defensive modules with `shield_max`; speed generator
   rows become defensive generator modules with `speed`. Starter compatibility
@@ -132,12 +135,12 @@ Implemented mapping rules:
 - Static bridge posture: `contentseed.DefaultSnapshotLegacyBridgeReport`
   enumerates every default snapshot row that still comes from local legacy
   content instead of Kalaazu source rows. Current temporary bridge categories
-  are legacy item/module/ship rows needed by starter/loadout compatibility,
-  craft recipes, production buildings, quest templates/rewards, scanner config,
+  are legacy item/module rows needed by starter/loadout compatibility, craft
+  recipes, production buildings, quest templates/rewards, scanner config,
   starter config, route policy, production rules, and combat rules. Map shells,
   portals, NPC templates, spawn areas, enemy pools, NPC drop profiles, aggro
-  profiles, leash profiles, shop products, loot tables, and projected starter
-  laser/shield modules must remain fully Kalaazu-derived.
+  profiles, leash profiles, ship rows, shop products, loot tables, and
+  projected starter laser/shield modules must remain fully Kalaazu-derived.
 
 This belongs to Phase 7 of:
 

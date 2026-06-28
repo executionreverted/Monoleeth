@@ -13,7 +13,7 @@ func TestBuildStarterShipRowsMapsKalaazuShipsAndStats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildStarterShipRows() error = %v, want nil", err)
 	}
-	if got, want := len(rows), 13; got != want {
+	if got, want := len(rows), 17; got != want {
 		t.Fatalf("ship rows = %d, want %d", got, want)
 	}
 
@@ -35,6 +35,28 @@ func TestBuildStarterShipRowsMapsKalaazuShipsAndStats(t *testing.T) {
 		goliath.PremiumPrice != 80000 ||
 		goliath.CreditPrice != 0 {
 		t.Fatalf("goliath = %+v, want Kalaazu stats and elite price", goliath)
+	}
+	starter := requireShipDefinitionForTest(t, rows, "starter")
+	if starter.Name != "Phoenix" ||
+		starter.BaseStats.HP != phoenix.BaseStats.HP ||
+		starter.Slots != phoenix.Slots ||
+		starter.Role != ships.ShipRoleSupport {
+		t.Fatalf("starter compatibility ship = %+v, want Phoenix stats on starter contract", starter)
+	}
+	fighter := requireShipDefinitionForTest(t, rows, "fighter_t1")
+	if fighter.Name != "Goliath" ||
+		fighter.BaseStats.HP != goliath.BaseStats.HP ||
+		fighter.Slots != goliath.Slots ||
+		fighter.Role != ships.ShipRoleFighter {
+		t.Fatalf("fighter compatibility ship = %+v, want Goliath stats on fighter_t1 contract", fighter)
+	}
+	scout := requireShipDefinitionForTest(t, rows, "scout_t1")
+	if scout.Name != "Vengeance" || scout.Role != ships.ShipRoleScout {
+		t.Fatalf("scout compatibility ship = %+v, want Vengeance on scout_t1 contract", scout)
+	}
+	hauler := requireShipDefinitionForTest(t, rows, "hauler_t1")
+	if hauler.Name != "BigBoy" || hauler.Role != ships.ShipRoleHauler {
+		t.Fatalf("hauler compatibility ship = %+v, want BigBoy on hauler_t1 contract", hauler)
 	}
 }
 
