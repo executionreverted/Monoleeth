@@ -81,6 +81,10 @@ func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
 	if err != nil {
 		return err
 	}
+	moduleRows, err := kalaazu.BuildStarterModuleRows(kalaazu.DefaultSeedFS())
+	if err != nil {
+		return err
+	}
 	npcRows, err := kalaazu.BuildStarterNPCRows(kalaazu.DefaultSeedFS())
 	if err != nil {
 		return err
@@ -89,10 +93,16 @@ func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
 	if err != nil {
 		return err
 	}
+	shopRows, err := kalaazu.BuildStarterShopRows(kalaazu.DefaultSeedFS())
+	if err != nil {
+		return err
+	}
 	snapshot.Maps = mapRows.MapRows
 	snapshot.MapPortals = mapRows.PortalRows
 	snapshot.Items = appendMissingSnapshotRows(snapshot.Items, itemRows)
+	snapshot.Modules = appendMissingSnapshotRows(snapshot.Modules, moduleRows)
 	snapshot.Ships = appendMissingSnapshotRows(snapshot.Ships, shipRows)
+	snapshot.ShopProducts = appendMissingSnapshotRows(snapshot.ShopProducts, shopRows)
 	snapshot.NPCTemplates = npcRows.NPCTemplates
 	snapshot.SpawnAreas = npcRows.SpawnAreas
 	snapshot.EnemyPools = npcRows.EnemyPools

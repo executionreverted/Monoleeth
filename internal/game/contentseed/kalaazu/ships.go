@@ -76,6 +76,7 @@ type kalaazuItemSource struct {
 	IsElite   bool
 	IsEvent   bool
 	IsBuyable bool
+	Bonus     int
 }
 
 func decodeKalaazuItem(row DumpRow) (kalaazuItemSource, error) {
@@ -115,6 +116,10 @@ func decodeKalaazuItem(row DumpRow) (kalaazuItemSource, error) {
 	if err != nil {
 		return kalaazuItemSource{}, err
 	}
+	bonus, err := row.Int("bonus")
+	if err != nil {
+		return kalaazuItemSource{}, err
+	}
 	return kalaazuItemSource{
 		KalaazuID: id,
 		Name:      normalizeDisplayName(name),
@@ -125,6 +130,7 @@ func decodeKalaazuItem(row DumpRow) (kalaazuItemSource, error) {
 		IsElite:   isElite,
 		IsEvent:   isEvent,
 		IsBuyable: isBuyable,
+		Bonus:     bonus,
 	}, nil
 }
 
