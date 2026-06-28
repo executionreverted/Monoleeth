@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
@@ -74,6 +75,84 @@ func TestCombatEngagementTickKeepsAttackActiveWhilePlayerMoves(t *testing.T) {
 	assertCombatEngagementStillActiveForTest(t, gameServer, resolved.PlayerID, "entity_training_npc")
 }
 
+func TestCombatEngagementTickConsumesSelectedLaserAmmo(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	resolved := createResolvedRuntimeSession(t, gameServer, "combat-tick-ammo@example.com", "Combat Tick Ammo")
+	equipStarterLaserForTest(t, gameServer, resolved.PlayerID)
+	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
+	mcbDefinition := testStackableDefinition(t, "ammunition_laser_mcb_50", "MCB-50", []economy.TradeFlag{economy.TradeFlagTradeable})
+	gameServer.runtime.itemCatalog["ammunition_laser_mcb_50"] = mcbDefinition
+	location, err := economy.NewItemLocation(economy.LocationKindAccountInventory, resolved.PlayerID.String())
+	if err != nil {
+		t.Fatalf("account inventory location: %v", err)
+	}
+	addTestInventoryStack(t, gameServer, resolved.PlayerID, mcbDefinition, 2, location, "combat-tick-mcb")
+
+	_ = gatewayJSON(t, gameServer, resolved, "request-combat-tick-select-mcb", realtime.OperationCombatSelectAmmo, map[string]any{
+		"family":  "laser",
+		"item_id": "ammunition_laser_mcb_50",
+	}, 1)
+	if _, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationCombatSelectAmmo, resolved.PlayerID); err != nil {
+		t.Fatalf("post combat.select_ammo events: %v", err)
+	}
+	_ = gatewayJSON(t, gameServer, resolved, "request-combat-tick-ammo-start", realtime.OperationCombatStartAttack, map[string]any{
+		"target_id": "entity_training_npc",
+	}, 2)
+	if _, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationCombatStartAttack, resolved.PlayerID); err != nil {
+		t.Fatalf("post combat.start_attack events: %v", err)
+	}
+
+	events := gameServer.runtime.tickAndCollectAOIEvents()[resolved.SessionID]
+	started := requireEventTypeForTest(t, events, realtime.EventCombatShotStarted)
+	assertCombatShotAmmoPayloadForTest(t, "selected ammo shot", started.Payload, "ammunition_laser_mcb_50", false, 2, 1)
+	if got := gameServer.runtime.Inventory.TotalItemQuantity(resolved.PlayerID, "ammunition_laser_mcb_50", location); got != 1 {
+		t.Fatalf("mcb quantity after shot = %d, want 1", got)
+	}
+}
+
+func TestCombatEngagementTickFallsBackToLCBWhenSelectedAmmoEmpty(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	resolved := createResolvedRuntimeSession(t, gameServer, "combat-tick-ammo-fallback@example.com", "Combat Tick Ammo Fallback")
+	equipStarterLaserForTest(t, gameServer, resolved.PlayerID)
+	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
+	gameServer.runtime.mu.Lock()
+	gameServer.runtime.setActiveCombatAmmoLocked(resolved.PlayerID, "laser", "ammunition_laser_mcb_50")
+	gameServer.runtime.mu.Unlock()
+
+	_ = gatewayJSON(t, gameServer, resolved, "request-combat-tick-fallback-start", realtime.OperationCombatStartAttack, map[string]any{
+		"target_id": "entity_training_npc",
+	}, 1)
+	if _, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationCombatStartAttack, resolved.PlayerID); err != nil {
+		t.Fatalf("post combat.start_attack events: %v", err)
+	}
+
+	events := gameServer.runtime.tickAndCollectAOIEvents()[resolved.SessionID]
+	started := requireEventTypeForTest(t, events, realtime.EventCombatShotStarted)
+	assertCombatShotAmmoPayloadForTest(t, "fallback ammo shot", started.Payload, "ammunition_laser_lcb_10", true, 100, 99)
+}
+
+func TestCombatEngagementTickStopsWhenNoLaserAmmoAvailable(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	resolved := createResolvedRuntimeSession(t, gameServer, "combat-tick-no-ammo@example.com", "Combat Tick No Ammo")
+	equipStarterLaserWithoutAmmoForTest(t, gameServer, resolved.PlayerID)
+	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
+
+	_ = gatewayJSON(t, gameServer, resolved, "request-combat-tick-no-ammo-start", realtime.OperationCombatStartAttack, map[string]any{
+		"target_id": "entity_training_npc",
+	}, 1)
+	if _, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationCombatStartAttack, resolved.PlayerID); err != nil {
+		t.Fatalf("post combat.start_attack events: %v", err)
+	}
+
+	events := gameServer.runtime.tickAndCollectAOIEvents()[resolved.SessionID]
+	stopped := requireEventTypeForTest(t, events, realtime.EventCombatAttackStopped)
+	assertCombatEngagementPayloadForTest(t, "no-ammo tick stop", stopped.Payload, false, "", string(combatStopReasonNotEnoughAmmo))
+	assertNoActiveCombatEngagementForTest(t, gameServer, resolved.PlayerID)
+}
+
 func TestCombatEngagementTickStopsWhenTargetOutOfRange(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
@@ -140,5 +219,23 @@ func assertCombatEngagementStillActiveForTest(t *testing.T, gameServer *Server, 
 	if !snapshot.Active || snapshot.TargetID.String() != targetID {
 		raw, _ := json.Marshal(snapshot)
 		t.Fatalf("combat engagement snapshot = %s, want active target %q", raw, targetID)
+	}
+}
+
+func assertCombatShotAmmoPayloadForTest(t *testing.T, label string, raw json.RawMessage, itemID string, fallback bool, quantityBefore int64, quantityAfter int64) {
+	t.Helper()
+	var payload struct {
+		Ammo struct {
+			ItemID         string `json:"item_id"`
+			Fallback       bool   `json:"fallback"`
+			QuantityBefore int64  `json:"quantity_before"`
+			QuantityAfter  int64  `json:"quantity_after"`
+		} `json:"ammo"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("decode %s shot ammo payload: %v", label, err)
+	}
+	if payload.Ammo.ItemID != itemID || payload.Ammo.Fallback != fallback || payload.Ammo.QuantityBefore != quantityBefore || payload.Ammo.QuantityAfter != quantityAfter {
+		t.Fatalf("%s ammo = %+v, want item=%q fallback=%t before=%d after=%d", label, payload.Ammo, itemID, fallback, quantityBefore, quantityAfter)
 	}
 }

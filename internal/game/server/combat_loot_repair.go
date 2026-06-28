@@ -83,6 +83,7 @@ type runtimeBasicLaserInput struct {
 
 type runtimeBasicLaserResult struct {
 	Combat              combat.BasicAttackResult
+	Ammo                runtimeCombatAmmoUse
 	PlayerState         playerRuntimeState
 	Drops               []loot.Drop
 	ProgressionSnapshot *progressionSnapshotPayload
@@ -126,12 +127,28 @@ func (runtime *Runtime) executeBasicLaserLocked(input runtimeBasicLaserInput) (r
 		_ = runtime.Combat.UpsertActor(targetBefore)
 	}
 
-	result, err := runtime.Combat.ExecuteBasicAttack(combat.BasicAttackInput{
+	attackInput := combat.BasicAttackInput{
 		AttackerID: attacker.EntityID,
 		TargetID:   input.TargetID,
 		Viewer:     &viewer,
 		Policy:     runtime.basicAttackPolicyLocked(),
-	})
+	}
+	if err := runtime.Combat.CanBasicAttack(attackInput); err != nil {
+		return runtimeBasicLaserResult{}, domainErrorForCombat(err)
+	}
+	ammo, err := runtime.resolveLaserAmmoForAttackLocked(input.PlayerID)
+	if err != nil {
+		return runtimeBasicLaserResult{}, err
+	}
+	ammo, err = runtime.consumeCombatAmmoLocked(input, ammo)
+	if err != nil {
+		return runtimeBasicLaserResult{}, err
+	}
+	attackInput.DamageMultiplier = ammo.Definition.DamageMultiplier
+	attackInput.AmmoItemID = ammo.Definition.ItemID
+	attackInput.AmmoFallback = ammo.Fallback
+
+	result, err := runtime.Combat.ExecuteBasicAttack(attackInput)
 	if err != nil {
 		return runtimeBasicLaserResult{}, domainErrorForCombat(err)
 	}
@@ -140,6 +157,7 @@ func (runtime *Runtime) executeBasicLaserLocked(input runtimeBasicLaserInput) (r
 			runtime.queueEventLocked(sessionID, realtime.EventCombatShotStarted, map[string]any{
 				"skill_id":  input.SkillID,
 				"target_id": input.TargetID.String(),
+				"ammo":      ammo.payload(),
 			})
 		}
 	}
@@ -217,12 +235,14 @@ func (runtime *Runtime) executeBasicLaserLocked(input runtimeBasicLaserInput) (r
 	}
 
 	for _, sessionID := range input.SessionIDs {
+		runtime.queueEventLocked(sessionID, realtime.EventInventorySnapshot, runtime.inventorySnapshotLocked(input.PlayerID))
 		runtime.queueEventLocked(sessionID, realtime.EventPlayerSnapshot, state.playerSnapshot())
 		runtime.queueEventLocked(sessionID, realtime.EventShipSnapshot, state.Ship)
 		runtime.queueEventLocked(sessionID, realtime.EventCombatCooldownStarted, map[string]any{
 			"skill_id":             input.SkillID,
 			"target_id":            input.TargetID.String(),
 			"cooldown_ready_at_ms": result.CooldownReadyAt.UTC().UnixMilli(),
+			"ammo":                 ammo.payload(),
 		})
 		if result.Hit {
 			runtime.queueEventLocked(sessionID, realtime.EventCombatDamage, map[string]any{
@@ -230,10 +250,12 @@ func (runtime *Runtime) executeBasicLaserLocked(input runtimeBasicLaserInput) (r
 				"amount":        roundCombatValue(result.Damage),
 				"shield_amount": roundCombatValue(result.ShieldDamage),
 				"hull_amount":   roundCombatValue(result.HPDamage),
+				"ammo":          ammo.payload(),
 			})
 		} else {
 			runtime.queueEventLocked(sessionID, realtime.EventCombatMiss, map[string]any{
 				"target_id": input.TargetID.String(),
+				"ammo":      ammo.payload(),
 			})
 		}
 		runtime.queueTargetUpdatedLocked(sessionID, result.Target)
@@ -292,11 +314,13 @@ func (runtime *Runtime) executeBasicLaserLocked(input runtimeBasicLaserInput) (r
 				"amount":               roundCombatValue(result.Damage),
 				"killed":               targetKilled,
 				"cooldown_ready_at_ms": result.CooldownReadyAt.UTC().UnixMilli(),
+				"ammo":                 ammo.payload(),
 			})
 		}
 	}
 	return runtimeBasicLaserResult{
 		Combat:              result,
+		Ammo:                ammo,
 		PlayerState:         state,
 		Drops:               drops,
 		ProgressionSnapshot: progressionSnapshot,
@@ -340,6 +364,7 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 		"cooldown_ready_at_ms": execution.Combat.CooldownReadyAt.UTC().UnixMilli(),
 		"ship":                 execution.PlayerState.Ship,
 		"player":               execution.PlayerState.playerSnapshot(),
+		"ammo":                 execution.Ammo.payload(),
 	}
 	if targetStatus := combatStatusFromActor(execution.Combat.Target); targetStatus != nil {
 		response["target"] = targetStatus

@@ -111,6 +111,9 @@ func (runtime *Runtime) ensurePlayerEconomyLocked(playerID foundation.PlayerID) 
 	if err := runtime.seedStarterModulesAndLoadout(playerID); err != nil {
 		return err
 	}
+	if err := runtime.seedStarterAmmoInventory(playerID); err != nil {
+		return err
+	}
 	if err := runtime.refreshPlayerCombatStatsPayloadLocked(playerID); err != nil {
 		return err
 	}
@@ -152,6 +155,31 @@ func (runtime *Runtime) seedStarterModulesAndLoadout(playerID foundation.PlayerI
 		RequestID: foundation.RequestID("starter-loadout-" + playerID.String()),
 		Equipped:  equipped,
 	})
+}
+
+func (runtime *Runtime) seedStarterAmmoInventory(playerID foundation.PlayerID) error {
+	const starterAmmoQuantity int64 = 10000
+	definition, ok := runtime.itemCatalog["ammunition_laser_lcb_10"]
+	if !ok {
+		return nil
+	}
+	location, err := economy.NewItemLocation(economy.LocationKindAccountInventory, playerID.String())
+	if err != nil {
+		return err
+	}
+	seedRef, err := foundation.AdminCompensationIdempotencyKey(playerID.String(), "starter-ammo-ammunition_laser_lcb_10")
+	if err != nil {
+		return err
+	}
+	_, err = runtime.Inventory.AddItem(economy.AddItemInput{
+		PlayerID:       playerID,
+		ItemDefinition: definition,
+		Quantity:       starterAmmoQuantity,
+		Location:       location,
+		Reason:         runtimeSeedLedgerReason,
+		ReferenceKey:   seedRef,
+	})
+	return err
 }
 
 func (runtime *Runtime) starterLoadoutEquippedModules(

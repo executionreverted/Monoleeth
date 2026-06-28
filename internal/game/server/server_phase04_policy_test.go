@@ -153,6 +153,7 @@ func TestSeededPVPMapLethalDeathFlowDisablesTargetDropsCargoAndBlocksActions(t *
 	moveTestPlayerEntity(gameServer, target.PlayerID, world.Vec2{X: 520, Y: 500})
 	setTestPlayerShipCombatValues(t, gameServer, target.PlayerID, 1, 0, 100)
 	addTestCargoStack(t, gameServer, target.PlayerID, "raw_ore", 3, "pvp-death-raw-ore")
+	seedStarterLaserAmmoForTest(t, gameServer, attacker.PlayerID, 10)
 
 	targetEntityID := testPlayerEntityID(t, gameServer, target.PlayerID)
 	response := gameServer.runtime.Gateway.HandleRequest(
@@ -272,6 +273,7 @@ func TestSeededPVPMapLethalDeathFlowDisablesTargetDropsCargoAndBlocksActions(t *
 func TestPvEAllowedInSafeAndPVEMap(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "pve-safe-map@example.com", "PvE Safe")
+	seedStarterLaserAmmoForTest(t, gameServer, resolved.PlayerID, 10)
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
 
 	response := gameServer.runtime.Gateway.HandleRequest(
@@ -289,6 +291,7 @@ func TestPvEAllowedInSafeAndPVEMap(t *testing.T) {
 
 func requestPlayerAttackForTest(t *testing.T, gameServer *Server, attacker auth.ResolvedSession, target auth.ResolvedSession) realtime.CachedResponse {
 	t.Helper()
+	seedStarterLaserAmmoForTest(t, gameServer, attacker.PlayerID, 10)
 	targetEntityID := testPlayerEntityID(t, gameServer, target.PlayerID)
 	return gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(attacker.SessionID.String()),

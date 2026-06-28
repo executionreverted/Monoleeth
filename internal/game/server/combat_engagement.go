@@ -22,6 +22,7 @@ const (
 	combatStopReasonOutOfRange       combatStopReason = "out_of_range"
 	combatStopReasonCooldown         combatStopReason = "cooldown"
 	combatStopReasonNotEnoughEnergy  combatStopReason = "not_enough_energy"
+	combatStopReasonNotEnoughAmmo    combatStopReason = "not_enough_ammo"
 	combatStopReasonShipDisabled     combatStopReason = "ship_disabled"
 	combatStopReasonTargetDestroyed  combatStopReason = "target_destroyed"
 	combatStopReasonMapChanged       combatStopReason = "map_changed"
@@ -199,6 +200,9 @@ func combatEngagementStopReasonForError(err error) (combatStopReason, bool) {
 	}
 	if foundation.IsCode(err, foundation.CodeNotEnoughEnergy) {
 		return combatStopReasonNotEnoughEnergy, true
+	}
+	if foundation.IsCode(err, foundation.CodeNotEnoughAmmo) {
+		return combatStopReasonNotEnoughAmmo, true
 	}
 	if foundation.IsCode(err, foundation.CodeShipDisabled) {
 		return combatStopReasonShipDisabled, true

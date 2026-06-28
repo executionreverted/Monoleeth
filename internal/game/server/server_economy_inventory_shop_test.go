@@ -169,9 +169,9 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 	if err := json.Unmarshal(pickup.Payload, &pickupPayload); err != nil {
 		t.Fatalf("decode pickup inventory: %v", err)
 	}
-	if len(pickupPayload.Inventory.Stackable) != 0 ||
+	if inventoryStackQuantity(pickupPayload.Inventory, "prometium", economy.LocationKindAccountInventory.String()) != 0 ||
 		!cargoSnapshotHasItem(pickupPayload.Cargo, "prometium", 20) {
-		t.Fatalf("pickup inventory = %+v cargo = %+v, want prometium in ship cargo only", pickupPayload.Inventory, pickupPayload.Cargo)
+		t.Fatalf("pickup inventory = %+v cargo = %+v, want prometium in ship cargo and not account inventory", pickupPayload.Inventory, pickupPayload.Cargo)
 	}
 }
 

@@ -48,6 +48,7 @@ const (
 	runtimePortalCooldown              = 30 * time.Second
 	runtimePortalProtectionDuration    = 10 * time.Second
 	runtimeQuestRewardLedgerReason     = economy.LedgerReason("quest_reward")
+	runtimeCombatAmmoUseLedgerReason   = economy.LedgerReason("combat_ammo_use")
 	runtimeSectorKey                   = "origin-fringe"
 	runtimeProjectionSourceWorker      = "worker_projection"
 	runtimeProjectionSourceKnownIntel  = "known_intel"

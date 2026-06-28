@@ -86,6 +86,7 @@ func TestCombatUseSkillRefreshesShieldRepairCombatLock(t *testing.T) {
 	defer conn.CloseNow()
 	readBootstrapEvents(t, conn)
 	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	seedStarterLaserAmmoForTest(t, gameServer, resolved.PlayerID, 10)
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
 	gameServer.runtime.tickAndCollectAOIEvents()
 

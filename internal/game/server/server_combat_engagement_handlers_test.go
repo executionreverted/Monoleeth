@@ -332,7 +332,7 @@ func assertCombatAmmoSelectionPayloadForTest(t *testing.T, label string, raw jso
 		ActiveAmmo map[string]struct {
 			ItemID           string  `json:"item_id"`
 			Quantity         int64   `json:"quantity"`
-			DamageMultiplier float64 `json:"damage_multiplier"`
+			DamageMultiplier float64 `json:"power_multiplier"`
 		} `json:"active_ammo"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
