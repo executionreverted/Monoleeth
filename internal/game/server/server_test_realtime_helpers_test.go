@@ -174,8 +174,8 @@ func wsURL(httpServer *httptest.Server) string {
 }
 func readBootstrapEvents(t *testing.T, conn *websocket.Conn) []realtime.EventEnvelope {
 	t.Helper()
-	events := make([]realtime.EventEnvelope, 0, 8)
-	for len(events) < 8 {
+	events := make([]realtime.EventEnvelope, 0, 9)
+	for len(events) < 9 {
 		events = append(events, readEvent(t, conn))
 	}
 	return events

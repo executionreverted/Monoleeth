@@ -142,6 +142,7 @@ func npcStatSnapshot(template worldmaps.NPCStatTemplate, nowTime time.Time) stat
 			Accuracy:       template.Accuracy,
 		},
 		Exploration: stats.ExplorationStats{
+			RadarRange:      template.WeaponRange,
 			SignatureRadius: template.RadarSignature,
 		},
 	}, nowTime)

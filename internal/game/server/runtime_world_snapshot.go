@@ -253,7 +253,12 @@ func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.
 		}
 		sharedSnapshots[instance] = instance.Worker.Snapshot()
 	}
-	eventsBySession := make(map[auth.SessionID][]realtime.EventEnvelope)
+	runtime.tickCombatEngagementsLocked(runtime.clock.Now())
+	runtime.tickNPCCombatLocked(runtime.clock.Now())
+	eventsBySession := runtime.drainQueuedEventsBySessionLocked()
+	if eventsBySession == nil {
+		eventsBySession = make(map[auth.SessionID][]realtime.EventEnvelope)
+	}
 	for _, instance := range runtime.sortedMapInstancesLocked() {
 		if _, failed := failedInstances[instance]; failed {
 			continue

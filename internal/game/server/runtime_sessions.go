@@ -191,6 +191,7 @@ func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession, lastSeenS
 		}
 	}
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventWorldSnapshot, worldSnapshot))
+	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventCombatStateSnapshot, combatEngagementPayloadFromSnapshot(runtime.combatEngagementSnapshotLocked(resolved.PlayerID, runtime.clock.Now()))))
 	runtime.recordReplayEventsLocked(resolved.SessionID, events)
 	if len(replay) == 0 {
 		return events, nil
@@ -239,6 +240,8 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 		runtime.recordReplayEventsBySessionLocked(eventsBySession)
 		return eventsBySession, nil
 	case realtime.OperationCombatUseSkill,
+		realtime.OperationCombatStartAttack,
+		realtime.OperationCombatStopAttack,
 		realtime.OperationLootPickup,
 		realtime.OperationShieldRepairTick,
 		realtime.OperationPortalEnter,

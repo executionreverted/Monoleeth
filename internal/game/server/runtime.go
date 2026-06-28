@@ -125,26 +125,28 @@ type Runtime struct {
 	mapInstances     map[worldmaps.MapID]*mapInstance
 	mapTickInstances []*mapInstance
 
-	players            map[foundation.PlayerID]playerRuntimeState
-	stealthBaseSpeeds  map[foundation.PlayerID]float64
-	eventSeq           map[auth.SessionID]uint64
-	eventRings         map[auth.SessionID]*sessionEventRing
-	sessions           map[auth.SessionID]foundation.PlayerID
-	sessionLocations   map[auth.SessionID]worldmaps.MapID
-	sessionEpochs      map[auth.SessionID]uint64
-	nextSessionEpoch   uint64
-	lastMove           map[foundation.PlayerID]time.Time
-	queuedEvents       map[auth.SessionID][]realtime.EventEnvelope
-	activeTransfers    map[foundation.PlayerID]portalTransferState
-	activeScanPulses   map[foundation.PlayerID]scanPulseMapGuard
-	activePlanetClaims map[foundation.PlanetID]int
-	portalCooldowns    map[portalCooldownKey]time.Time
-	portalAttempts     map[portalRequestKey]portalTransferRecord
-	playerProtections  map[protectionKey]playerProtectionState
-	pendingRespawns    map[foundation.PlayerID]pendingRespawnTarget
-	combatLocks        map[foundation.PlayerID]time.Time
-	shieldRepairTicks  map[foundation.PlayerID]time.Time
-	capacitorRefreshes map[foundation.PlayerID]time.Time
+	players                 map[foundation.PlayerID]playerRuntimeState
+	stealthBaseSpeeds       map[foundation.PlayerID]float64
+	eventSeq                map[auth.SessionID]uint64
+	eventRings              map[auth.SessionID]*sessionEventRing
+	sessions                map[auth.SessionID]foundation.PlayerID
+	sessionLocations        map[auth.SessionID]worldmaps.MapID
+	sessionEpochs           map[auth.SessionID]uint64
+	nextSessionEpoch        uint64
+	lastMove                map[foundation.PlayerID]time.Time
+	queuedEvents            map[auth.SessionID][]realtime.EventEnvelope
+	activeTransfers         map[foundation.PlayerID]portalTransferState
+	activeScanPulses        map[foundation.PlayerID]scanPulseMapGuard
+	activePlanetClaims      map[foundation.PlanetID]int
+	portalCooldowns         map[portalCooldownKey]time.Time
+	portalAttempts          map[portalRequestKey]portalTransferRecord
+	playerProtections       map[protectionKey]playerProtectionState
+	pendingRespawns         map[foundation.PlayerID]pendingRespawnTarget
+	combatLocks             map[foundation.PlayerID]time.Time
+	activeCombatEngagements map[foundation.PlayerID]combatEngagementState
+	lastCombatStopReasons   map[foundation.PlayerID]combatStopReason
+	shieldRepairTicks       map[foundation.PlayerID]time.Time
+	capacitorRefreshes      map[foundation.PlayerID]time.Time
 
 	nextPlayerEntity int
 
@@ -1389,6 +1391,8 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		playerProtections:              make(map[protectionKey]playerProtectionState),
 		pendingRespawns:                make(map[foundation.PlayerID]pendingRespawnTarget),
 		combatLocks:                    make(map[foundation.PlayerID]time.Time),
+		activeCombatEngagements:        make(map[foundation.PlayerID]combatEngagementState),
+		lastCombatStopReasons:          make(map[foundation.PlayerID]combatStopReason),
 		shieldRepairTicks:              make(map[foundation.PlayerID]time.Time),
 		capacitorRefreshes:             make(map[foundation.PlayerID]time.Time),
 		Combat:                         combatService,

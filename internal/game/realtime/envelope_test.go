@@ -102,6 +102,63 @@ func TestDecodeRequestEnvelopeAcceptsCombatUseSkillOperation(t *testing.T) {
 	}
 }
 
+func TestOperationRegistryAcceptsCombatAttackEngagementOperations(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want Operation
+	}{
+		{
+			name: "start attack",
+			body: `{"request_id":"request-combat-start","op":"combat.start_attack","payload":{"target_id":"npc-1"},"client_seq":8,"v":1}`,
+			want: OperationCombatStartAttack,
+		},
+		{
+			name: "stop attack",
+			body: `{"request_id":"request-combat-stop","op":"combat.stop_attack","payload":{},"client_seq":9,"v":1}`,
+			want: OperationCombatStopAttack,
+		},
+		{
+			name: "state",
+			body: `{"request_id":"request-combat-state","op":"combat.state","payload":{},"client_seq":10,"v":1}`,
+			want: OperationCombatState,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			envelope, err := DecodeRequestEnvelope([]byte(tc.body))
+			if err != nil {
+				t.Fatalf("decode combat engagement request envelope: %v", err)
+			}
+			if envelope.Op != tc.want {
+				t.Fatalf("op = %q, want %q", envelope.Op, tc.want)
+			}
+			spec, ok := LookupOperation(tc.want)
+			if !ok {
+				t.Fatalf("LookupOperation(%q) not registered", tc.want)
+			}
+			if spec.RateLimitPosture != RateLimitPostureIntentBurst {
+				t.Fatalf("combat engagement op posture = %q, want %q", spec.RateLimitPosture, RateLimitPostureIntentBurst)
+			}
+		})
+	}
+}
+
+func TestCombatAttackEngagementEventConstants(t *testing.T) {
+	cases := map[ClientEventType]string{
+		EventCombatAttackStarted: "combat.attack_started",
+		EventCombatAttackStopped: "combat.attack_stopped",
+		EventCombatShotStarted:   "combat.shot_started",
+		EventCombatShotResolved:  "combat.shot_resolved",
+		EventCombatStateSnapshot: "combat.state_snapshot",
+	}
+	for got, want := range cases {
+		if string(got) != want {
+			t.Fatalf("combat engagement event constant = %q, want %q", got, want)
+		}
+	}
+}
+
 func TestDecodeRequestEnvelopeAcceptsShopCatalogOperation(t *testing.T) {
 	cases := []struct {
 		name string

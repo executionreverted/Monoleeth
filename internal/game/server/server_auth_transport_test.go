@@ -80,6 +80,7 @@ func TestServerAuthRoutesAndWebSocketBootstrap(t *testing.T) {
 		realtime.EventCargoSnapshot,
 		realtime.EventProgressionSnapshot,
 		realtime.EventWorldSnapshot,
+		realtime.EventCombatStateSnapshot,
 	} {
 		if _, ok := gotTypes[want]; !ok {
 			t.Fatalf("missing bootstrap event %q in %#v", want, gotTypes)

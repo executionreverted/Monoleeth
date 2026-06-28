@@ -114,6 +114,19 @@ func (service *Service) RegenerateEnergy(entityID world.EntityID, elapsed time.D
 	return cloneActor(actor), nil
 }
 
+// CanBasicAttack validates a basic laser attack without mutating actor state.
+func (service *Service) CanBasicAttack(input BasicAttackInput) error {
+	if err := input.validate(); err != nil {
+		return err
+	}
+
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	_, _, err := service.validatedAttackActorsLocked(input, service.clock.Now())
+	return err
+}
+
 // ExecuteBasicAttack validates and resolves one server-authoritative basic laser attack.
 func (service *Service) ExecuteBasicAttack(input BasicAttackInput) (BasicAttackResult, error) {
 	if err := input.validate(); err != nil {
