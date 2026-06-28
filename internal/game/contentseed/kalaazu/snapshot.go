@@ -305,9 +305,18 @@ func unsupportedItemCounts(itemRows []DumpRow) map[string]int {
 		if err != nil {
 			continue
 		}
-		if source.Category == 4 && source.Type != 14 && source.Type != 15 && source.Type != 16 && source.Type != 30 {
+		if source.Category == 4 && !supportsKalaazuEquipmentModule(source) {
 			counts["category_"+strconv.Itoa(source.Category)+"_type_"+strconv.Itoa(source.Type)]++
 		}
 	}
 	return counts
+}
+
+func supportsKalaazuEquipmentModule(source kalaazuItemSource) bool {
+	switch source.Type {
+	case 14, 15, 16, 17, 20:
+		return true
+	default:
+		return false
+	}
 }

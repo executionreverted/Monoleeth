@@ -40,6 +40,22 @@ func TestBuildStarterItemRowsMapsKalaazuItems(t *testing.T) {
 	if starterShield.Name != "SG3N-A01" || starterShield.Type != economy.ItemTypeInstance || starterShield.MaxStack.Int64() != 1 {
 		t.Fatalf("starter shield item = %+v, want Kalaazu SG3N-A01 instance item projected onto starter contract", starterShield)
 	}
+	for _, want := range []content.ContentID{
+		"equipment_weapon_laser_lf_1",
+		"equipment_weapon_rocketlauncher_hst_1",
+		"equipment_extra_repbot_rep_4",
+	} {
+		definition := requireItemDefinitionForTest(t, rows, want)
+		if definition.Type != economy.ItemTypeInstance || definition.MaxStack.Int64() != 1 {
+			t.Fatalf("equipment item %s = %+v, want instance item for loadout equipment", want, definition)
+		}
+		if !itemTestHasBindRule(definition, economy.BindRuleOnEquip) {
+			t.Fatalf("equipment item %s bind rules = %+v, want bind-on-equip metadata", want, definition.BindRules)
+		}
+		if !itemTestHasTradeFlag(definition, economy.TradeFlagDestroyable) {
+			t.Fatalf("equipment item %s trade flags = %+v, want destroyable equipment metadata", want, definition.TradeFlags)
+		}
+	}
 	for _, want := range []struct {
 		contentID content.ContentID
 		name      string
@@ -101,13 +117,13 @@ func TestBuildStarterItemRowsMapsKalaazuItems(t *testing.T) {
 	}
 }
 
-func TestBuildStarterModuleRowsMapsKalaazuLasersShieldsAndSpeedGenerators(t *testing.T) {
+func TestBuildStarterModuleRowsMapsKalaazuLasersShieldsSpeedGeneratorsRocketLaunchersAndRepairBots(t *testing.T) {
 	rows, err := BuildStarterModuleRows(DefaultSeedFS())
 	if err != nil {
 		t.Fatalf("BuildStarterModuleRows() error = %v, want nil", err)
 	}
-	if got, want := len(rows), 21; got != want {
-		t.Fatalf("module rows = %d, want %d laser/shield/speed rows plus compatibility rows", got, want)
+	if got, want := len(rows), 27; got != want {
+		t.Fatalf("module rows = %d, want %d laser/shield/speed/rocket/repair rows plus compatibility rows", got, want)
 	}
 
 	lf1 := requireModuleDefinitionForTest(t, rows, "equipment_weapon_laser_lf_1")
@@ -121,6 +137,20 @@ func TestBuildStarterModuleRowsMapsKalaazuLasersShieldsAndSpeedGenerators(t *tes
 	g3n := requireModuleDefinitionForTest(t, rows, "equipment_generator_speed_g3n_7900")
 	if g3n.SlotType != "defensive" || g3n.StatModifiers[0].Stat != modules.StatSpeed || g3n.StatModifiers[0].Value != 10 {
 		t.Fatalf("g3n module = %+v, want Kalaazu speed module", g3n)
+	}
+	hst1 := requireModuleDefinitionForTest(t, rows, "equipment_weapon_rocketlauncher_hst_1")
+	hst2 := requireModuleDefinitionForTest(t, rows, "equipment_weapon_rocketlauncher_hst_2")
+	if hst1.SlotType != modules.ModuleSlotTypeOffensive ||
+		hst1.StatModifiers[0].Stat != modules.StatWeaponDamage ||
+		hst2.StatModifiers[0].Value <= hst1.StatModifiers[0].Value {
+		t.Fatalf("rocket launcher modules = %+v / %+v, want offensive scaling damage modules", hst1, hst2)
+	}
+	rep1 := requireModuleDefinitionForTest(t, rows, "equipment_extra_repbot_rep_1")
+	rep4 := requireModuleDefinitionForTest(t, rows, "equipment_extra_repbot_rep_4")
+	if rep1.SlotType != modules.ModuleSlotTypeUtility ||
+		rep1.StatModifiers[0].Stat != modules.StatShieldRegen ||
+		rep4.StatModifiers[0].Value <= rep1.StatModifiers[0].Value {
+		t.Fatalf("repair bot modules = %+v / %+v, want utility scaling regen modules", rep1, rep4)
 	}
 	starterLaser := requireModuleDefinitionForTest(t, rows, "laser_alpha_t1")
 	if starterLaser.Name != "LF-1" ||
@@ -206,6 +236,24 @@ func requireItemDefinitionForTest(t *testing.T, rows []content.SnapshotRow, cont
 	}
 	t.Fatalf("item row %q missing", contentID)
 	return economy.ItemDefinition{}
+}
+
+func itemTestHasBindRule(definition economy.ItemDefinition, rule economy.BindRule) bool {
+	for _, candidate := range definition.BindRules {
+		if candidate == rule {
+			return true
+		}
+	}
+	return false
+}
+
+func itemTestHasTradeFlag(definition economy.ItemDefinition, flag economy.TradeFlag) bool {
+	for _, candidate := range definition.TradeFlags {
+		if candidate == flag {
+			return true
+		}
+	}
+	return false
 }
 
 func requireModuleDefinitionForTest(t *testing.T, rows []content.SnapshotRow, contentID content.ContentID) modules.ModuleDefinition {

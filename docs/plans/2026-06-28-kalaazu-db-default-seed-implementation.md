@@ -104,13 +104,19 @@ Completed and committed:
   projections over Kalaazu/default NPC, item, recipe, and production rows. The
   legacy bridge report now has zero expected rows and fails if any default
   snapshot row is not owned by the Kalaazu default row set.
+- Task 8 equipment mapping slice: Kalaazu rocket launcher rows now become
+  offensive module definitions, repair bot rows now become utility regen module
+  definitions, and source equipment item rows now use instance/bind-on-equip
+  metadata. Unsupported equipment counts now exclude mapped rocket/repair
+  families and continue to track unmapped trade-drone/special-CPU families.
 
 Remaining before this plan is complete:
 
 - Run Task 10 full verification, including `go test ./...`, client check, and
   `git diff --check`.
-- Speed generator rows are now mapped through `modules.StatSpeed`; remaining
-  unsupported equipment rows are still counted in the import report.
+- Speed generator, rocket launcher, and repair bot rows now map into typed
+  module stats; remaining unsupported equipment rows are still counted in the
+  import report.
 
 ---
 

@@ -23,7 +23,7 @@ func TestBuildDefaultRowsReturnsImportReportAndAllSupportedGroups(t *testing.T) 
 	}
 	if rows.Report.ImportedRows[content.ContentTypeMap] != 3 ||
 		rows.Report.ImportedRows[content.ContentTypeMapPortal] == 0 ||
-		rows.Report.ImportedRows[content.ContentTypeModule] != 21 ||
+		rows.Report.ImportedRows[content.ContentTypeModule] != 27 ||
 		rows.Report.ImportedRows[content.ContentTypeShip] != 17 ||
 		rows.Report.ImportedRows[content.ContentTypeCraftRecipe] != 3 ||
 		rows.Report.ImportedRows[content.ContentTypeProductionBuilding] != 3 ||
@@ -39,5 +39,17 @@ func TestBuildDefaultRowsReturnsImportReportAndAllSupportedGroups(t *testing.T) 
 	}
 	if len(rows.Report.UnsupportedItems) == 0 {
 		t.Fatalf("unsupported item report empty, want unsupported equipment categories counted")
+	}
+	if _, ok := rows.Report.UnsupportedItems["category_4_type_17"]; ok {
+		t.Fatalf("unsupported item report = %+v, want rocket launchers mapped as offensive modules", rows.Report.UnsupportedItems)
+	}
+	if _, ok := rows.Report.UnsupportedItems["category_4_type_20"]; ok {
+		t.Fatalf("unsupported item report = %+v, want repair bots mapped as utility modules", rows.Report.UnsupportedItems)
+	}
+	if got, want := rows.Report.UnsupportedItems["category_4_type_18"], 1; got != want {
+		t.Fatalf("unsupported category_4_type_18 = %d, want %d trade drone row still tracked", got, want)
+	}
+	if got, want := rows.Report.UnsupportedItems["category_4_type_19"], 36; got != want {
+		t.Fatalf("unsupported category_4_type_19 = %d, want %d special CPU rows still tracked", got, want)
 	}
 }

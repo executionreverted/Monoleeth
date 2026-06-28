@@ -36,7 +36,7 @@ func mapStarterItemRows(itemRows []DumpRow) ([]content.SnapshotRow, error) {
 	}
 	rows := make([]content.SnapshotRow, 0, len(sources)+23)
 	for _, source := range sources {
-		definition, err := itemDefinitionWithID(source.Source, source.ItemID)
+		definition, err := sourceItemDefinitionWithID(source.Source, source.ItemID)
 		if err != nil {
 			return nil, err
 		}
@@ -87,6 +87,13 @@ func mappedItemSources(itemRows []DumpRow) ([]mappedKalaazuItemSource, error) {
 
 func itemDefinition(source kalaazuItemSource) (economy.ItemDefinition, error) {
 	return itemDefinitionWithID(source, foundation.ItemID(source.LootID))
+}
+
+func sourceItemDefinitionWithID(source kalaazuItemSource, itemID foundation.ItemID) (economy.ItemDefinition, error) {
+	if isKalaazuEquipmentItem(source) {
+		return moduleItemDefinitionWithID(source, itemID)
+	}
+	return itemDefinitionWithID(source, itemID)
 }
 
 func itemDefinitionWithID(source kalaazuItemSource, itemID foundation.ItemID) (economy.ItemDefinition, error) {
@@ -395,7 +402,11 @@ func uniqueItemID(source kalaazuItemSource, seen map[foundation.ItemID]struct{})
 }
 
 func isKalaazuInstanceItem(source kalaazuItemSource) bool {
-	return source.Category == 1 || source.Type == 30
+	return source.Category == 1 || source.Category == 4 || source.Category == 6 || source.Category == 7 || source.Type == 30
+}
+
+func isKalaazuEquipmentItem(source kalaazuItemSource) bool {
+	return source.Category == 4 || source.Category == 6 || source.Category == 7
 }
 
 func itemRarity(source kalaazuItemSource) economy.ItemRarity {
@@ -467,6 +478,13 @@ func moduleDefinition(source mappedKalaazuItemSource) (modules.ModuleDefinition,
 		category = modules.ModuleCategoryOffensive
 		slotType = modules.ModuleSlotTypeOffensive
 		statModifiers = []modules.StatModifier{{Stat: modules.StatWeaponDamage, Kind: modules.StatModifierFlat, Value: int64(maxInt(1, source.Source.Bonus))}}
+	case 17:
+		category = modules.ModuleCategoryOffensive
+		slotType = modules.ModuleSlotTypeOffensive
+		statModifiers = []modules.StatModifier{
+			{Stat: modules.StatWeaponDamage, Kind: modules.StatModifierFlat, Value: int64(rocketLauncherDamage(source.Source))},
+			{Stat: modules.StatWeaponRange, Kind: modules.StatModifierFlat, Value: 700},
+		}
 	case 14:
 		category = modules.ModuleCategoryDefensive
 		slotType = modules.ModuleSlotTypeDefensive
@@ -475,6 +493,10 @@ func moduleDefinition(source mappedKalaazuItemSource) (modules.ModuleDefinition,
 		category = modules.ModuleCategoryDefensive
 		slotType = modules.ModuleSlotTypeDefensive
 		statModifiers = []modules.StatModifier{{Stat: modules.StatSpeed, Kind: modules.StatModifierFlat, Value: int64(maxInt(1, source.Source.Bonus))}}
+	case 20:
+		category = modules.ModuleCategoryUtility
+		slotType = modules.ModuleSlotTypeUtility
+		statModifiers = []modules.StatModifier{{Stat: modules.StatShieldRegen, Kind: modules.StatModifierFlat, Value: int64(repairBotRegen(source.Source))}}
 	default:
 		return modules.ModuleDefinition{}, false, nil
 	}
@@ -638,6 +660,30 @@ func moduleTier(source kalaazuItemSource) int {
 		return 2
 	default:
 		return 1
+	}
+}
+
+func rocketLauncherDamage(source kalaazuItemSource) int {
+	normalized := strings.ToLower(source.LootID)
+	switch {
+	case strings.Contains(normalized, "hst_2"):
+		return 55
+	default:
+		return 35
+	}
+}
+
+func repairBotRegen(source kalaazuItemSource) int {
+	normalized := strings.ToLower(source.LootID)
+	switch {
+	case strings.Contains(normalized, "rep_4"):
+		return 8
+	case strings.Contains(normalized, "rep_3"):
+		return 6
+	case strings.Contains(normalized, "rep_2"):
+		return 4
+	default:
+		return 2
 	}
 }
 

@@ -126,14 +126,19 @@ Implemented mapping rules:
   `fighter_t1`, `scout_t1`, and `hauler_t1` are projected from Phoenix,
   Goliath, Vengeance, and BigBoy so existing hangar/loadout/session contracts
   keep working while their stats and slots come from Kalaazu rows.
-- Modules: laser rows become offensive modules with `weapon_damage`; shield
-  generator rows become defensive modules with `shield_max`; speed generator
-  rows become defensive generator modules with `speed`. Starter combat
+- Modules: laser rows become offensive modules with `weapon_damage`; rocket
+  launcher rows become offensive modules with `weapon_damage` and
+  `weapon_range`; shield generator rows become defensive modules with
+  `shield_max`; speed generator rows become defensive generator modules with
+  `speed`; repair bot rows become utility modules with `shield_regen`. Source
+  equipment item rows use instance/bind-on-equip metadata. Starter combat
   compatibility ids `laser_alpha_t1` and `shield_generator_t1` are projected
   from the Kalaazu LF-1 and SG3N-A01 rows. Utility compatibility ids
   `scanner_t1`, `radar_t1`, and `cargo_expander_t1` are projected from Kalaazu
   G-RL1, AI-R1, and G3X-CRGO-X rows so existing starter/loadout contracts keep
-  working while their module rows come from the default seed builder.
+  working while their module rows come from the default seed builder. Trade
+  drone and special CPU equipment rows remain unsupported and counted because
+  their mechanics are not represented by current server-authoritative stats.
 - Shop: buyable Kalaazu rows become shop products and are classified as ship,
   module, or item products based on the rows imported above. Default snapshot
   shop products are fully Kalaazu-derived; local/static shop products remain

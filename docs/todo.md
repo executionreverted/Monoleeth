@@ -116,13 +116,14 @@ for phase status; this file is a compact pending-work index.
   over Kalaazu/default NPC, item, recipe, and production rows, with
   source/imported/unsupported counts recorded by the import report. Legacy
   default snapshot bridge rows are now gone; the bridge report expects zero
-  rows and fails closed on new non-Kalaazu default rows. Kalaazu speed-generator
-  items now map into module speed stats. Next work: expand draft / publish /
-  rollback tooling, bring unsupported equipment rows into typed mappings where
-  useful, and build the admin CMS UI for monsters, drop tables, item stats,
-  recipes, map pools, and planet/scanner tuning. Root browser demo runtime mode
-  has been removed, so CMS UI smoke must use real authenticated server/admin
-  state.
+  rows and fails closed on new non-Kalaazu default rows. Kalaazu speed-generator,
+  rocket launcher, and repair bot items now map into typed module stats while
+  source equipment item rows use instance/bind-on-equip metadata. Next work:
+  expand draft / publish / rollback tooling, either model or keep explicitly
+  reporting unsupported trade-drone/special-CPU equipment rows, and build the
+  admin CMS UI for monsters, drop tables, item stats, recipes, map pools, and
+  planet/scanner tuning. Root browser demo runtime mode has been removed, so
+  CMS UI smoke must use real authenticated server/admin state.
   Source: `docs/plans/2026-06-24-content-foundation-design.md`.
 - [ ] Tune the first real world sprite set into the final 2D/3D art pass. The
   current renderer now loads concrete assets under `client/src/assets/world/`
