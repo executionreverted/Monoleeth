@@ -103,17 +103,19 @@ for phase status; this file is a compact pending-work index.
   keeps visibility, cooldown, damage, death, repair, and snapshot truth. Map
   enemy content now rejects incomplete per-map pools/profiles, unreferenced
   NPC stat/drop/aggro/leash rows, missing pool refs, and invalid monster stat
-  values before runtime starts. Empty content DBs now seed the Old DarkOrbit
-  2009 balance slice for XP, ships, modules, NPC stats, item/shop rows, loot
-  tables, cargo-only ore resources, maps, recipes, production buildings, and
-  quests; NPC ore drops go to ship cargo and ore resources are not shop
-  products. Scanner config, starter config, route policy, production rules, and
-  combat rules now have first-class snapshot rows as well; typed defaults remain
-  only as first-run seed builders and explicit test helpers. Next work: expand
-  draft / publish / rollback tooling and build the admin CMS UI for monsters,
-  drop tables, item stats, recipes, map pools, and planet/scanner tuning. Root
-  browser demo runtime mode has been removed, so CMS UI smoke must use real
-  authenticated server/admin state.
+  values before runtime starts. Empty content DBs now seed a Kalaazu-derived
+  default snapshot for starter maps, portals, NPC density, item definitions,
+  ship definitions, supported laser/shield modules, and buyable shop rows, with
+  source/imported/unsupported counts recorded by the import report. Legacy
+  static catalog rows still bridge systems Kalaazu does not define yet: XP,
+  loot tables, cargo-only ore resources, recipes, production buildings, quests,
+  scanner config, starter config, route policy, production rules, and combat
+  rules. Next work: remove or explicitly replace those remaining static bridge
+  rows, add speed-generator/module-stat support for Kalaazu generator items,
+  expand draft / publish / rollback tooling, and build the admin CMS UI for
+  monsters, drop tables, item stats, recipes, map pools, and planet/scanner
+  tuning. Root browser demo runtime mode has been removed, so CMS UI smoke must
+  use real authenticated server/admin state.
   Source: `docs/plans/2026-06-24-content-foundation-design.md`.
 - [ ] Tune the first real world sprite set into the final 2D/3D art pass. The
   current renderer now loads concrete assets under `client/src/assets/world/`

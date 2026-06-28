@@ -10,6 +10,35 @@
 
 ---
 
+## Progress 2026-06-28
+
+Completed and committed:
+
+- Tasks 1-2: checked-in Kalaazu SQL dumps, provenance README, embedded fixture
+  FS, and narrow SQL dump parser.
+- Tasks 3-4: starter map shells, portals, NPC templates, spawn areas, enemy
+  pools, drops, aggro, leash rows, and density policy for `1-1`, `1-2`, `1-3`.
+- Task 5: item definitions, ship definitions, supported laser/shield modules,
+  and buyable shop products derived from Kalaazu item/ship rows.
+- Task 6: `kalaazu.BuildDefaultRows`, import report counts, and
+  `contentseed.BuildDefaultSnapshot` as the default first-run seed path.
+- Task 7 slice: runtime DB seeding now uses the Kalaazu default snapshot when
+  content DB is enabled and empty; runtime still requires DB content unless a
+  repository is explicitly injected.
+
+Remaining before this plan is complete:
+
+- Finish Task 8 hardening: reduce the default snapshot's dependence on the
+  legacy static `DefaultGameplayContent` base rows or explicitly document every
+  remaining base row as a temporary bridge.
+- Run Task 10 full verification, including `go test ./...`, client check, and
+  `git diff --check`.
+- Add module/stat support for Kalaazu speed generator rows before claiming full
+  equipment parity; they are currently counted as unsupported in the import
+  report because the module schema has no speed stat field.
+
+---
+
 ## Source Material
 
 Use these upstream files:
