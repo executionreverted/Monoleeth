@@ -157,6 +157,8 @@ export interface HUDWindowState {
   id: HUDWindowID;
   x: number;
   y: number;
+  width: number;
+  height: number;
   z: number;
   open: boolean;
 }
@@ -174,4 +176,14 @@ export interface HUDModalDragState {
   pointerID: number;
   offsetX: number;
   offsetY: number;
+}
+
+export interface HUDResizeState {
+  target: 'window-resize';
+  id: HUDWindowID;
+  pointerID: number;
+  startX: number;
+  startY: number;
+  startWidth: number;
+  startHeight: number;
 }

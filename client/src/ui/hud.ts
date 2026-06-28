@@ -10,7 +10,7 @@ import { planetsPanel } from './hud-render-planets';
 import { topbarDangerText, topbarLocationText } from './hud-topbar';
 import { actionBar, baseWindowDefinitions, intelPanel, logPanel, modalDefinition, movementEtaPanel, opsPanel, quickActionStates, shipPanel, statusPanel, systemsPanel, targetPanel, windowDefinitions, windowLayout } from './hud-render-panels';
 import { adminContentEditPatchFromForm, buildAdminContentDraftUpdate, findAdminContentDraftRow } from './hud-render-admin-content';
-import type { HUDDragState, HUDHandlers, HUDModalDragState, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, HUDWindowState } from './hud-types';
+import type { HUDDragState, HUDHandlers, HUDModalDragState, HUDModalID, HUDModalState, HUDPanelDefinition, HUDResizeState, HUDWindowID, HUDWindowState } from './hud-types';
 import { clamp, escapeHTML, formatCompactNumber, formatPair, formatPercent, isControlElement, isInventoryTabID, isModuleFilterID, isQuickActionKey, isShopCategoryID, isSocialTabID, normalizeModalID, normalizePanelID, parseLoadoutDragPayload } from './hud-formatters';
 import { dispatchPlanetRouteButtonAction } from './hud-planet-route-actions';
 
@@ -26,7 +26,7 @@ export class HUD {
   private readonly panels: Record<string, HTMLElement>;
   private readonly toast: HTMLElement;
   private readonly windowStates = new Map<HUDWindowID, HUDWindowState>();
-  private dragState: HUDDragState | HUDModalDragState | null = null;
+  private dragState: HUDDragState | HUDModalDragState | HUDResizeState | null = null;
   private focusedWindow: HUDWindowID | null = null;
   private modal: HUDModalState | null = null;
   private modalReturnFocus: { element: HTMLElement | null; selector: string | null } | null = null;
@@ -135,6 +135,15 @@ export class HUD {
           return;
         }
 
+        const resizeHandle = targetElement.closest<HTMLElement>('[data-window-resize]');
+        if (resizeHandle && event.button === 0) {
+          const panel = normalizePanelID(resizeHandle.dataset.windowResize);
+          if (panel) {
+            this.startResize(panel, event);
+          }
+          return;
+        }
+
         const modalDrag = targetElement.closest<HTMLElement>('[data-modal-drag]');
         if (modalDrag && event.button === 0 && !isControlElement(target)) {
           this.startModalDrag(event);
@@ -166,7 +175,7 @@ export class HUD {
     window.addEventListener('pointerup', this.dragEnd);
     window.addEventListener('pointercancel', this.dragEnd);
     window.addEventListener('keydown', this.shortcutKeyDown);
-    window.addEventListener('resize', () => this.hideModuleTooltip());
+    window.addEventListener('resize', () => this.handleViewportResize());
 
     this.root.addEventListener('pointerover', (event) => this.handleModuleTooltipPointerOver(event));
     this.root.addEventListener('pointerout', (event) => this.handleModuleTooltipPointerOut(event));
@@ -916,7 +925,7 @@ export class HUD {
   }
 
   private renderWindows(state: ClientState): void {
-    if (this.dragState?.target === 'window') {
+    if (this.dragState?.target === 'window' || this.dragState?.target === 'window-resize') {
       return;
     }
     const definitions = windowDefinitions(state);
@@ -943,7 +952,7 @@ export class HUD {
           ? `<button class="hud-window__help-button" type="button" data-modal-open="tutorial" data-help-topic="${escapeHTML(definition.helpTopic)}" title="${escapeHTML(definition.title)} help" aria-label="${escapeHTML(definition.title)} help">?</button>`
           : '';
         return `
-          <section class="hud-window" data-window-panel="${definition.id}" data-window-size="${layout.size}" data-focused="${focused ? 'true' : 'false'}" data-open="true" data-x="${Math.round(windowState.x)}" data-y="${Math.round(windowState.y)}" style="--window-x:${windowState.x}px;--window-y:${windowState.y}px;--window-z:${windowState.z};--window-width:${layout.width}px" tabindex="-1" aria-label="${escapeHTML(definition.title)}">
+          <section class="hud-window" data-window-panel="${definition.id}" data-window-size="${layout.size}" data-focused="${focused ? 'true' : 'false'}" data-open="true" data-x="${Math.round(windowState.x)}" data-y="${Math.round(windowState.y)}" data-width="${Math.round(windowState.width)}" data-height="${Math.round(windowState.height)}" style="--window-x:${windowState.x}px;--window-y:${windowState.y}px;--window-z:${windowState.z};--window-width:${windowState.width}px;--window-height:${windowState.height}px" tabindex="-1" aria-label="${escapeHTML(definition.title)}">
             <header class="hud-window__header" data-window-drag="${definition.id}">
               <strong>${escapeHTML(definition.title)}</strong>
               <div>
@@ -952,6 +961,7 @@ export class HUD {
               </div>
             </header>
             <div class="hud-window__body">${definition.render(state)}</div>
+            <button class="hud-window__resize" type="button" data-window-resize="${definition.id}" title="Resize panel" aria-label="Resize ${escapeHTML(definition.title)}"></button>
           </section>
         `;
       })
@@ -1046,7 +1056,7 @@ export class HUD {
   private openWindow(panel: HUDWindowID): void {
     let state = this.windowStates.get(panel);
     if (!state) {
-      state = { id: panel, ...this.defaultWindowPosition(panel), z: ++this.nextWindowZ, open: true };
+      state = { id: panel, ...this.defaultWindowPlacement(panel), z: ++this.nextWindowZ, open: true };
       this.windowStates.set(panel, state);
     }
     state.open = true;
@@ -1142,23 +1152,39 @@ export class HUD {
       .sort((left, right) => left.z - right.z);
   }
 
-  private defaultWindowPosition(panel: HUDWindowID): { x: number; y: number } {
+  private defaultWindowPlacement(panel: HUDWindowID): { x: number; y: number; width: number; height: number } {
     const layout = windowLayout(panel);
-    const x = (window.innerWidth - Math.min(layout.width, window.innerWidth - 16)) / 2;
-    const y = (window.innerHeight - Math.min(layout.preferredHeight, window.innerHeight - 72)) / 2;
-    return this.clampWindowPosition(panel, x, y);
+    const size = this.clampWindowSize(panel, layout.width, layout.preferredHeight);
+    const x = (window.innerWidth - size.width) / 2;
+    const y = (window.innerHeight - size.height) / 2;
+    return { ...this.clampWindowPosition(panel, x, y, size.width, size.height), ...size };
   }
 
-  private clampWindowPosition(panel: HUDWindowID, x: number, y: number): { x: number; y: number } {
+  private clampWindowPosition(panel: HUDWindowID, x: number, y: number, width?: number, height?: number): { x: number; y: number } {
     const layout = windowLayout(panel);
-    const width = Math.min(layout.width, Math.max(320, window.innerWidth - 16));
+    const state = this.windowStates.get(panel);
+    const effectiveWidth = Math.min(width ?? state?.width ?? layout.width, Math.max(320, window.innerWidth - 16));
+    const effectiveHeight = Math.min(height ?? state?.height ?? layout.preferredHeight, Math.max(260, window.innerHeight - 72));
     const margin = 8;
     const topMargin = window.innerWidth < 768 ? margin : 56;
-    const maxX = Math.max(margin, window.innerWidth - width - margin);
-    const maxY = Math.max(topMargin, window.innerHeight - 52);
+    const maxX = Math.max(margin, window.innerWidth - effectiveWidth - margin);
+    const maxY = Math.max(topMargin, window.innerHeight - effectiveHeight - margin);
     return {
       x: clamp(x, margin, maxX),
       y: clamp(y, topMargin, maxY),
+    };
+  }
+
+  private clampWindowSize(panel: HUDWindowID, width: number, height: number): { width: number; height: number } {
+    const viewportWidth = Math.max(320, window.innerWidth || 1024);
+    const viewportHeight = Math.max(360, window.innerHeight || 768);
+    const maxWidth = Math.max(280, viewportWidth - 16);
+    const maxHeight = Math.max(260, viewportHeight - (window.innerWidth < 768 ? 112 : 72));
+    const minWidth = Math.min(maxWidth, window.innerWidth < 768 ? 280 : 360);
+    const minHeight = Math.min(maxHeight, panel === 'chat' ? 360 : 280);
+    return {
+      width: clamp(width, minWidth, maxWidth),
+      height: clamp(height, minHeight, maxHeight),
     };
   }
 
@@ -1182,6 +1208,32 @@ export class HUD {
       offsetY: event.clientY - rect.top,
     };
     windowPanel.dataset.dragging = 'true';
+    event.preventDefault();
+  }
+
+  private startResize(panel: HUDWindowID, event: PointerEvent): void {
+    if (window.innerWidth < 768) {
+      this.raiseWindow(panel);
+      return;
+    }
+    const windowPanel = (event.target as HTMLElement).closest<HTMLElement>('[data-window-panel]');
+    const state = this.windowStates.get(panel);
+    if (!windowPanel || !state?.open) {
+      return;
+    }
+    const rect = windowPanel.getBoundingClientRect();
+    this.raiseWindow(panel);
+    this.dragState = {
+      target: 'window-resize',
+      id: panel,
+      pointerID: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: rect.width,
+      startHeight: rect.height,
+    };
+    windowPanel.dataset.resizing = 'true';
+    markHUDInputSuppressed();
     event.preventDefault();
   }
 
@@ -1222,6 +1274,19 @@ export class HUD {
     if (!state) {
       return;
     }
+    if (drag.target === 'window-resize') {
+      const size = this.clampWindowSize(drag.id, drag.startWidth + event.clientX - drag.startX, drag.startHeight + event.clientY - drag.startY);
+      const position = this.clampWindowPosition(drag.id, state.x, state.y, size.width, size.height);
+      state.width = size.width;
+      state.height = size.height;
+      state.x = position.x;
+      state.y = position.y;
+      this.applyWindowPosition(state);
+      this.applyWindowSize(state);
+      markHUDInputSuppressed();
+      event.preventDefault();
+      return;
+    }
     const next = this.clampWindowPosition(drag.id, event.clientX - drag.offsetX, event.clientY - drag.offsetY);
     state.x = next.x;
     state.y = next.y;
@@ -1247,6 +1312,7 @@ export class HUD {
     const windowPanel = this.windowLayer.querySelector<HTMLElement>(`[data-window-panel="${drag.id}"]`);
     if (windowPanel) {
       delete windowPanel.dataset.dragging;
+      delete windowPanel.dataset.resizing;
     }
     this.dragState = null;
     markHUDInputSuppressed();
@@ -1292,6 +1358,34 @@ export class HUD {
     element.style.setProperty('--window-z', String(state.z));
     element.dataset.x = String(Math.round(state.x));
     element.dataset.y = String(Math.round(state.y));
+  }
+
+  private applyWindowSize(state: HUDWindowState): void {
+    const element = this.windowLayer.querySelector<HTMLElement>(`[data-window-panel="${state.id}"]`);
+    if (!element) {
+      return;
+    }
+    element.style.setProperty('--window-width', `${state.width}px`);
+    element.style.setProperty('--window-height', `${state.height}px`);
+    element.dataset.width = String(Math.round(state.width));
+    element.dataset.height = String(Math.round(state.height));
+  }
+
+  private handleViewportResize(): void {
+    this.hideModuleTooltip();
+    for (const state of this.windowStates.values()) {
+      if (!state.open) {
+        continue;
+      }
+      const size = this.clampWindowSize(state.id, state.width, state.height);
+      const position = this.clampWindowPosition(state.id, state.x, state.y, size.width, size.height);
+      state.width = size.width;
+      state.height = size.height;
+      state.x = position.x;
+      state.y = position.y;
+      this.applyWindowPosition(state);
+      this.applyWindowSize(state);
+    }
   }
 
   private applyWindowFocus(): void {

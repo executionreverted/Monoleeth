@@ -197,6 +197,10 @@
     max-height: min(16rem, calc(100vh - 13.5rem));
   }
 
+  .hud-window__resize {
+    display: none;
+  }
+
   .hud-window[data-window-panel="chat"] {
     height: auto;
     min-height: 0;
