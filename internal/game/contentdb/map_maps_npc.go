@@ -28,6 +28,45 @@ type npcTemplateMapRow struct {
 	XPValue        int64                       `json:"xp_value"`
 }
 
+type mapDefinitionMapRow struct {
+	MapID          worldmaps.MapID        `json:"map_id"`
+	PublicMapKey   worldmaps.PublicMapKey `json:"public_map_key"`
+	DisplayName    string                 `json:"display_name"`
+	Region         string                 `json:"region"`
+	RiskBand       string                 `json:"risk_band"`
+	PVPPolicy      string                 `json:"pvp_policy"`
+	VisualThemeKey string                 `json:"visual_theme_key"`
+	Bounds         worldmaps.Bounds       `json:"bounds"`
+	SpawnPoints    []spawnPointMapRow     `json:"spawn_points"`
+	SafeZones      []safeZoneMapRow       `json:"safe_zones"`
+}
+
+type spawnPointMapRow struct {
+	SpawnID  worldmaps.SpawnID `json:"spawn_id"`
+	Position world.Vec2        `json:"position"`
+	Label    string            `json:"label"`
+}
+
+type safeZoneMapRow struct {
+	SafeZoneID    worldmaps.SafeZoneID `json:"safe_zone_id"`
+	Center        world.Vec2           `json:"center"`
+	Radius        float64              `json:"radius"`
+	DisplayName   string               `json:"display_name"`
+	BlocksPVP     bool                 `json:"blocks_pvp"`
+	HangarActions bool                 `json:"hangar_actions"`
+}
+
+type mapPortalMapRow struct {
+	PortalID           worldmaps.PortalID `json:"portal_id"`
+	SourceMapID        worldmaps.MapID    `json:"source_map_id"`
+	SourcePosition     world.Vec2         `json:"source_position"`
+	InteractionRadius  float64            `json:"interaction_radius"`
+	DestinationMapID   worldmaps.MapID    `json:"destination_map_id"`
+	DestinationSpawnID worldmaps.SpawnID  `json:"destination_spawn_id"`
+	DisplayName        string             `json:"display_name"`
+	Visible            bool               `json:"visible"`
+}
+
 type spawnAreaMapRow struct {
 	MapID                 worldmaps.MapID          `json:"map_id"`
 	SpawnAreaID           worldmaps.SpawnAreaID    `json:"spawn_area_id"`
@@ -109,10 +148,19 @@ func mapAndVerifyWorldMaps(snapshot content.Snapshot, worldID world.WorldID) (*w
 }
 
 func mapWorldMapDefinitions(snapshot content.Snapshot, worldID world.WorldID) ([]worldmaps.MapDefinition, error) {
-	definitions := mapShellDefinitions(worldID)
+	definitions, err := mapShellDefinitionRows(snapshot.Maps, worldID)
+	if err != nil {
+		return nil, err
+	}
+	if len(definitions) == 0 {
+		definitions = mapShellDefinitions(worldID)
+	}
 	byMapID := make(map[worldmaps.MapID]*worldmaps.MapDefinition, len(definitions))
 	for index := range definitions {
 		byMapID[definitions[index].InternalMapID] = &definitions[index]
+	}
+	if err := mapPortalRows(snapshot.MapPortals, byMapID); err != nil {
+		return nil, err
 	}
 	if err := mapNPCStatTemplateRows(snapshot.NPCTemplates, byMapID); err != nil {
 		return nil, err
@@ -136,6 +184,72 @@ func mapWorldMapDefinitions(snapshot content.Snapshot, worldID world.WorldID) ([
 		return nil, err
 	}
 	return definitions, nil
+}
+
+func mapShellDefinitionRows(rows []content.SnapshotRow, worldID world.WorldID) ([]worldmaps.MapDefinition, error) {
+	definitions := make([]worldmaps.MapDefinition, 0, len(rows))
+	if err := mapMapRowGroup(content.ContentTypeMap, rows, func(row content.SnapshotRow, decoded mapDefinitionMapRow) error {
+		if err := requireRowID(content.ContentTypeMap, row, decoded.MapID.String()); err != nil {
+			return err
+		}
+		definition := worldmaps.MapDefinition{
+			InternalMapID:  decoded.MapID,
+			PublicMapKey:   decoded.PublicMapKey,
+			WorldID:        worldID,
+			ZoneID:         decoded.MapID.ZoneID(),
+			DisplayName:    decoded.DisplayName,
+			Region:         decoded.Region,
+			RiskBand:       decoded.RiskBand,
+			PVPPolicy:      decoded.PVPPolicy,
+			VisualThemeKey: decoded.VisualThemeKey,
+			Bounds:         decoded.Bounds,
+		}
+		for _, spawn := range decoded.SpawnPoints {
+			definition.SpawnPoints = append(definition.SpawnPoints, worldmaps.SpawnPointDefinition{
+				SpawnID:  spawn.SpawnID,
+				Position: spawn.Position,
+				Label:    spawn.Label,
+			})
+		}
+		for _, safeZone := range decoded.SafeZones {
+			definition.SafeZones = append(definition.SafeZones, worldmaps.SafeZoneDefinition{
+				SafeZoneID:    safeZone.SafeZoneID,
+				Center:        safeZone.Center,
+				Radius:        safeZone.Radius,
+				DisplayName:   safeZone.DisplayName,
+				BlocksPVP:     safeZone.BlocksPVP,
+				HangarActions: safeZone.HangarActions,
+			})
+		}
+		definitions = append(definitions, definition)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return definitions, nil
+}
+
+func mapPortalRows(rows []content.SnapshotRow, byMapID map[worldmaps.MapID]*worldmaps.MapDefinition) error {
+	return mapMapRowGroup(content.ContentTypeMapPortal, rows, func(row content.SnapshotRow, decoded mapPortalMapRow) error {
+		if err := requireRowID(content.ContentTypeMapPortal, row, qualifiedMapContentID(decoded.SourceMapID, decoded.PortalID.String())); err != nil {
+			return err
+		}
+		definition, err := requireMapDefinition(content.ContentTypeMapPortal, row, byMapID, decoded.SourceMapID)
+		if err != nil {
+			return err
+		}
+		definition.Portals = append(definition.Portals, worldmaps.PortalDefinition{
+			PortalID:           decoded.PortalID,
+			SourceMapID:        decoded.SourceMapID,
+			SourcePosition:     decoded.SourcePosition,
+			InteractionRadius:  decoded.InteractionRadius,
+			DestinationMapID:   decoded.DestinationMapID,
+			DestinationSpawnID: decoded.DestinationSpawnID,
+			DisplayName:        decoded.DisplayName,
+			Visible:            decoded.Visible,
+		})
+		return nil
+	})
 }
 
 func mapNPCStatTemplateRows(rows []content.SnapshotRow, byMapID map[worldmaps.MapID]*worldmaps.MapDefinition) error {

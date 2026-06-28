@@ -134,9 +134,9 @@ func TestCatalogValidationRejectsInvalidDefinitions(t *testing.T) {
 		want error
 	}{
 		{
-			name: "non exact bounds",
+			name: "nonzero min bounds",
 			edit: func(definitions []MapDefinition) []MapDefinition {
-				definitions[0].Bounds.MaxX = PlayableMaxCoordinate - 1
+				definitions[0].Bounds.MinX = 1
 				return definitions
 			},
 			want: ErrInvalidMapDefinition,

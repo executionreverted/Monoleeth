@@ -20,6 +20,8 @@ const (
 	ContentTypeModule             ContentType = "module"
 	ContentTypeShip               ContentType = "ship"
 	ContentTypeShopProduct        ContentType = "shop_product"
+	ContentTypeMap                ContentType = "map"
+	ContentTypeMapPortal          ContentType = "map_portal"
 	ContentTypeNPCTemplate        ContentType = "npc_template"
 	ContentTypeSpawnArea          ContentType = "spawn_area"
 	ContentTypeEnemyPool          ContentType = "enemy_pool"
@@ -45,6 +47,8 @@ func AllContentTypes() []ContentType {
 		ContentTypeModule,
 		ContentTypeShip,
 		ContentTypeShopProduct,
+		ContentTypeMap,
+		ContentTypeMapPortal,
 		ContentTypeNPCTemplate,
 		ContentTypeSpawnArea,
 		ContentTypeEnemyPool,
