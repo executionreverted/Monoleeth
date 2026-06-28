@@ -253,6 +253,9 @@ func (client *clientConnection) waitForWriter(timeout time.Duration) bool {
 }
 
 func (server *Server) readMessage(conn *websocket.Conn) (websocket.MessageType, []byte, error) {
+	if server.config.SocketReadTimeout <= 0 {
+		return conn.Read(context.Background())
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), server.config.SocketReadTimeout)
 	defer cancel()
 	return conn.Read(ctx)

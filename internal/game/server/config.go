@@ -96,7 +96,7 @@ func DefaultConfig() Config {
 		Addr:               defaultServerAddr,
 		AllowedOrigins:     []string{"http://localhost:5173", "http://127.0.0.1:5173"},
 		SessionTTL:         24 * time.Hour,
-		SocketReadTimeout:  30 * time.Second,
+		SocketReadTimeout:  0,
 		SocketWriteTimeout: 10 * time.Second,
 		SocketReadLimit:    defaultSocketReadLimit,
 		TickDelta:          worker.DefaultTickDelta,
