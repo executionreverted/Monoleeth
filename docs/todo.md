@@ -1207,12 +1207,13 @@ Task 001 release proof must be rebuilt through
   `client/tests/e2e/phase11-darkorbit-feel-flow.mjs`.
 - [ ] Replace remaining explicit Kalaazu default-seed legacy bridge rows.
   `contentseed.DefaultSnapshotLegacyBridgeReport` now makes every non-Kalaazu
-  default snapshot row explicit and tested, but special item compatibility
-  rows, crafting, production, quests, scanner config, route policy, production
-  rules, and combat rules still need domain-owned Kalaazu/default replacements.
-  Ship rows, shop products, loot tables, starter config, starter
-  laser/shield/utility module rows, their item rows, and material item aliases
-  are now produced by the Kalaazu default seed builder. Source:
+  default snapshot row explicit and tested through a per-row allowlist, but
+  special item compatibility rows, crafting, production, quests, scanner config,
+  route policy, production rules, and combat rules still need domain-owned
+  Kalaazu/default replacements. Ship rows, shop products, loot tables, starter
+  config, starter laser/shield/utility module rows, their item rows, and
+  material item aliases are now produced by the Kalaazu default seed builder.
+  Source:
   `internal/game/contentseed/snapshot_bridge.go`.
 - [x] Wire realtime gateway request handling to authenticated session and
   server-side player resolution. `realtime.Gateway` now decodes request

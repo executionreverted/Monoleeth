@@ -42,6 +42,9 @@ Completed and committed:
   rows, with an explicit temporary reason. Tests fail if any non-Kalaazu row is
   added without a reason or if map/NPC rows regress back to legacy/static
   sources.
+- Task 8 hardening slice: bridge reasons are now an explicit per-row allowlist,
+  so new static item/module/ship/craft/quest/rule rows fail closed instead of
+  inheriting broad type-level reasons.
 - Task 8 bridge reduction slice: starter loot tables are now produced by the
   Kalaazu default row builder and reference Kalaazu resource item ids. The
   bridge report fails if loot table rows regress to local/static rows.

@@ -144,14 +144,15 @@ Implemented mapping rules:
   into the existing account/session starter contracts.
 - Static bridge posture: `contentseed.DefaultSnapshotLegacyBridgeReport`
   enumerates every default snapshot row that still comes from local legacy
-  content instead of Kalaazu source rows. Current temporary bridge categories
-  are legacy item rows needed by special-item compatibility, craft recipes,
-  production buildings, quest templates/rewards, scanner config, route policy,
-  production rules, and combat rules. Map shells, portals, NPC templates, spawn
-  areas, enemy pools, NPC drop profiles, aggro profiles, leash profiles, ship
-  rows, shop products, loot tables, starter config, projected starter
-  laser/shield/utility module rows, their item rows, and projected material
-  item rows must remain fully Kalaazu-derived.
+  content instead of Kalaazu source rows. The bridge is an explicit per-row
+  allowlist, not a broad type-level exemption. Current temporary bridge
+  categories are legacy item rows needed by special-item compatibility, craft
+  recipes, production buildings, quest templates/rewards, scanner config, route
+  policy, production rules, and combat rules. Map shells, portals, NPC
+  templates, spawn areas, enemy pools, NPC drop profiles, aggro profiles, leash
+  profiles, ship rows, shop products, loot tables, starter config, projected
+  starter laser/shield/utility module rows, their item rows, and projected
+  material item rows must remain fully Kalaazu-derived.
 
 This belongs to Phase 7 of:
 

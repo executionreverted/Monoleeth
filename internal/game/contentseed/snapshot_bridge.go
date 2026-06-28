@@ -83,34 +83,77 @@ func kalaazuDefaultRowIDs(rows kalaazu.DefaultRows) map[content.ContentType]map[
 	return out
 }
 
+var explicitLegacyBridgeReasons = map[content.ContentType]map[content.ContentID]string{
+	content.ContentTypeItem: {
+		"energy_cell":              "Local crafting material retained until a matching Kalaazu/default craft material row is designed.",
+		"helium_dust":              "Local quest/progression material retained until a matching Kalaazu/default material row is designed.",
+		"laser_lens":               "Local crafting material retained until a matching Kalaazu/default craft material row is designed.",
+		"planet_coordinate_scroll": "Local special item retained until coordinate-item content has a Kalaazu/default source row.",
+		"scanner_circuit":          "Local crafting material retained until a matching Kalaazu/default craft material row is designed.",
+		"warp_coil":                "Local crafting material retained until a matching Kalaazu/default craft material row is designed.",
+		"x_core":                   "Local planet-claim/premium special item retained until X Core content has a Kalaazu/default source row.",
+	},
+	content.ContentTypeCraftRecipe: {
+		"laser_alpha_t1":      "Local crafting recipe bridge; selected Kalaazu dumps do not include craft recipe rows.",
+		"refined_alloy_batch": "Local crafting recipe bridge; selected Kalaazu dumps do not include craft recipe rows.",
+		"scout_t1_unlock":     "Local crafting recipe bridge; selected Kalaazu dumps do not include craft recipe rows.",
+	},
+	content.ContentTypeProductionBuilding: {
+		"alloy_foundry_l1":  "Local production building bridge; selected Kalaazu dumps do not include planet production rows.",
+		"iron_extractor_l1": "Local production building bridge; selected Kalaazu dumps do not include planet production rows.",
+		"iron_extractor_l2": "Local production building bridge; selected Kalaazu dumps do not include planet production rows.",
+	},
+	content.ContentTypeQuestTemplate: {
+		"quest_build_extractor_r1":       "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+		"quest_build_storage_r1":         "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+		"quest_collect_carbon_shards_r1": "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+		"quest_collect_iron_ore_r1":      "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+		"quest_craft_energy_cells_r1":    "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+		"quest_craft_laser_alpha_r2":     "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+		"quest_craft_refined_alloy_r1":   "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+		"quest_deliver_energy_cells_r1":  "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+		"quest_deliver_iron_ore_r1":      "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+		"quest_kill_pirates_r1":          "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+		"quest_kill_raiders_r1":          "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+		"quest_kill_void_raiders_r3":     "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+		"quest_scan_planets_r1":          "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+		"quest_scan_signals_r1":          "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
+	},
+	content.ContentTypeQuestRewardTable: {
+		"quest_rewards.quest_build_extractor_r1":       "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+		"quest_rewards.quest_build_storage_r1":         "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+		"quest_rewards.quest_collect_carbon_shards_r1": "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+		"quest_rewards.quest_collect_iron_ore_r1":      "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+		"quest_rewards.quest_craft_energy_cells_r1":    "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+		"quest_rewards.quest_craft_laser_alpha_r2":     "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+		"quest_rewards.quest_craft_refined_alloy_r1":   "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+		"quest_rewards.quest_deliver_energy_cells_r1":  "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+		"quest_rewards.quest_deliver_iron_ore_r1":      "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+		"quest_rewards.quest_kill_pirates_r1":          "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+		"quest_rewards.quest_kill_raiders_r1":          "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+		"quest_rewards.quest_kill_void_raiders_r3":     "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+		"quest_rewards.quest_scan_planets_r1":          "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+		"quest_rewards.quest_scan_signals_r1":          "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
+	},
+	content.ContentTypeScannerConfig: {
+		"scanner_config": "Local scanner config bridge; selected Kalaazu dumps do not include scanner tuning rows.",
+	},
+	content.ContentTypeRoutePolicy: {
+		"route_policy": "Local route policy bridge; selected Kalaazu dumps do not include automation route rules.",
+	},
+	content.ContentTypeProductionRules: {
+		"production_rules": "Local production rules bridge; selected Kalaazu dumps do not include production rule rows.",
+	},
+	content.ContentTypeCombatRules: {
+		"combat_rules": "Local combat rules bridge; selected Kalaazu dumps do not include player combat-rule rows.",
+	},
+}
+
 func legacyBridgeReason(contentType content.ContentType, contentID content.ContentID) (string, bool) {
-	switch contentType {
-	case content.ContentTypeItem:
-		return "Legacy item definition retained until loot tables, crafting, production, quests, and starter grants are fully Kalaazu-derived.", true
-	case content.ContentTypeModule:
-		return "Legacy module definition retained for starter loadout and compatibility where no Kalaazu row shares this module id.", true
-	case content.ContentTypeShip:
-		if contentID == content.ContentID(content.DefaultStarterShipID.String()) {
-			return "Legacy starter ship id contract retained for loadout/session compatibility; stats are overwritten from Kalaazu Phoenix.", true
-		}
-		return "Legacy ship definition retained for shop/hangar compatibility where no Kalaazu row shares this ship id.", true
-	case content.ContentTypeCraftRecipe:
-		return "Local crafting recipe bridge; selected Kalaazu dumps do not include craft recipe rows.", true
-	case content.ContentTypeProductionBuilding:
-		return "Local production building bridge; selected Kalaazu dumps do not include planet production rows.", true
-	case content.ContentTypeQuestTemplate:
-		return "Local quest template bridge; selected Kalaazu dumps do not include quest rows.", true
-	case content.ContentTypeQuestRewardTable:
-		return "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.", true
-	case content.ContentTypeScannerConfig:
-		return "Local scanner config bridge; selected Kalaazu dumps do not include scanner tuning rows.", true
-	case content.ContentTypeRoutePolicy:
-		return "Local route policy bridge; selected Kalaazu dumps do not include automation route rules.", true
-	case content.ContentTypeProductionRules:
-		return "Local production rules bridge; selected Kalaazu dumps do not include production rule rows.", true
-	case content.ContentTypeCombatRules:
-		return "Local combat rules bridge; selected Kalaazu dumps do not include player combat-rule rows.", true
-	default:
+	byID, ok := explicitLegacyBridgeReasons[contentType]
+	if !ok {
 		return "", false
 	}
+	reason, ok := byID[contentID]
+	return reason, ok
 }

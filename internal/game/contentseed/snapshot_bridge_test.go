@@ -50,6 +50,7 @@ func TestDefaultSnapshotLegacyBridgeReportCoversEveryNonKalaazuRow(t *testing.T)
 		switch row.ContentType {
 		case content.ContentTypeMap,
 			content.ContentTypeMapPortal,
+			content.ContentTypeModule,
 			content.ContentTypeShopProduct,
 			content.ContentTypeShip,
 			content.ContentTypeNPCTemplate,
