@@ -1207,7 +1207,10 @@ Task 001 release proof must be rebuilt through
   proven by `e2e:darkorbit-feel`; the same canary now kills a default-data
   Origin NPC, receives server-created loot, picks it up into server cargo, and
   uses `combat.state` keepalives so the authenticated WebSocket remains open
-  during the longer real-content kill. Source:
+  during the longer real-content kill. The canary now captures desktop and
+  mobile screenshots plus a run-notes JSON artifact; set
+  `DARKORBIT_FEEL_LONG_RUN_MS=600000` for the opt-in 10-minute observation
+  loop. Source:
   `client/tests/e2e/phase11-darkorbit-feel-flow.mjs`.
 - [x] Replace remaining explicit Kalaazu default-seed legacy bridge rows.
   `contentseed.DefaultSnapshotLegacyBridgeReport` now makes every non-Kalaazu

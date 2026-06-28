@@ -30,11 +30,13 @@ Current browser canary slice:
   sends `combat.state` keepalives during the long kill, travels
   `1-1 -> 1-2 -> 1-3`, requires a fresh current-map AOI NPC in `1-3`,
   starts attack there, observes NPC return-fire damage against the real player
-  ship, captures a desktop screenshot, and scans smoke state, WebSocket frames,
-  and process logs for hidden/fake data tokens.
-- The default-data kill/loot browser proof is now covered. The remaining Task 8
-  gap is broader session polish evidence, especially mobile screenshot and
-  scripted 10-minute run notes.
+  ship, captures desktop and mobile screenshots, writes a structured run-notes
+  artifact, and scans smoke state, WebSocket frames, and process logs for
+  hidden/fake data tokens. `DARKORBIT_FEEL_LONG_RUN_MS=600000` enables the
+  scripted 10-minute observation loop without slowing the default gate.
+- The default-data kill/loot browser proof and mobile screenshot proof are now
+  covered. The remaining Task 8 gap is broader human polish review over the
+  generated screenshots/run notes.
 
 ## Phase 0: Guardrails
 

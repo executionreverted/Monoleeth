@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,6 +51,7 @@ async function main() {
   let goServer;
   let browser;
   let context;
+  let client;
 
   try {
     await mkdir(screenshotDir, { recursive: true });
@@ -75,7 +76,7 @@ async function main() {
     browser = await chromium.launch();
     context = await browser.newContext({ viewport });
     const page = await context.newPage();
-    const client = { page, seq: 1, diagnostics: [], processes: [goServer] };
+    client = { page, seq: 1, diagnostics: [], processes: [goServer], runNotes: [], startedAt: Date.now() };
     page.on('console', (message) => {
       if (message.type() === 'error' || message.type() === 'warning') {
         client.diagnostics.push(`[console:${message.type()}] ${message.text()}`);
@@ -90,6 +91,10 @@ async function main() {
     await register(client, `darkorbit-feel-${nonce}@example.test`, 'correct-password', `DO-${nonce.slice(-7)}`);
     const originState = await waitSmoke(client, originReady, 'authenticated Origin state', 30000);
     console.log('darkorbit-feel phase=origin-ready');
+    note(client, 'origin-ready', {
+      map: originState.currentMap?.public_map_key,
+      portals: (originState.currentMap?.visible_portals ?? []).length,
+    });
     assert(originState.auth?.session?.authenticated === true, 'real authenticated session missing');
     assert(originState.currentMap?.public_map_key === '1-1', `map ${originState.currentMap?.public_map_key}, want 1-1`);
     assert((originState.currentMap?.visible_portals ?? []).length > 0, 'Origin visible portal missing');
@@ -114,12 +119,18 @@ async function main() {
     await waitForInboundEventCount(client, 'combat.shot_started', beforeMoveShotCount + 1, 35000);
     await killAndPickupOriginLoot(client, originNPC.entity_id);
     console.log('darkorbit-feel phase=origin-loot-picked');
+    note(client, 'origin-loot-picked', {
+      target_id: originNPC.entity_id,
+      shots: inboundEventCount(await frames(client), 'combat.shot_started'),
+    });
     await assertNoLeak(client, await smoke(client), 'post-origin-loot state');
 
     await enterForwardPortal(client, '1-2');
     console.log('darkorbit-feel phase=map-1-2');
+    note(client, 'map-1-2');
     await enterForwardPortal(client, '1-3');
     console.log('darkorbit-feel phase=map-1-3');
+    note(client, 'map-1-3');
     const borderArrivalState = await waitSmoke(client, (state) => state.currentMap?.public_map_key === '1-3', 'Border Skirmish map reached', 10000);
     const borderArrivalPosition = positionNow(selfEntity(borderArrivalState), borderArrivalState);
     const borderBands = [
@@ -183,13 +194,47 @@ async function main() {
     );
     await sendDriverCommand(client, 'combatStopAttack', [], 'combat.stop_attack');
     console.log('darkorbit-feel phase=border-return-fire');
+    note(client, 'border-return-fire', {
+      target_id: borderNPC.entity_id,
+      self_id: borderSelfID,
+      return_fire_damage_events: inboundMessages(await frames(client), 'combat.damage').filter(
+        (message) => message.payload?.target_id === borderSelfID && Number(message.payload?.amount ?? 0) > 0,
+      ).length,
+    });
     await assertNoLeak(client, await smoke(client), 'final state');
 
-    const screenshotPath = resolve(screenshotDir, `darkorbit-feel-desktop-${nonce}.png`);
-    await page.screenshot({ path: screenshotPath, fullPage: false });
+    const desktopScreenshotPath = resolve(screenshotDir, `darkorbit-feel-desktop-${nonce}.png`);
+    await page.screenshot({ path: desktopScreenshotPath, fullPage: false });
+    const mobileScreenshotPath = resolve(screenshotDir, `darkorbit-feel-mobile-${nonce}.png`);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await waitSmoke(client, (state) => state.connectionStatus === 'connected', 'mobile screenshot connected state', 10000);
+    await page.screenshot({ path: mobileScreenshotPath, fullPage: false });
+    note(client, 'screenshots-captured', {
+      desktop: desktopScreenshotPath,
+      mobile: mobileScreenshotPath,
+    });
+    const longRunMS = Number(process.env.DARKORBIT_FEEL_LONG_RUN_MS || 0);
+    if (longRunMS > 0) {
+      await observeLongRun(client, longRunMS);
+    }
+    const notesPath = resolve(screenshotDir, `darkorbit-feel-notes-${nonce}.json`);
+    await writeRunNotes(client, notesPath, {
+      desktopScreenshotPath,
+      mobileScreenshotPath,
+      longRunMS,
+    });
     await assertWebSocketCanary(client);
     assertProcessLogCanary([goServer]);
-    console.log(`darkorbit-feel e2e ok shots=${inboundEventCount(await frames(client), 'combat.shot_started')} screenshot=${screenshotPath}`);
+    console.log(
+      `darkorbit-feel e2e ok shots=${inboundEventCount(await frames(client), 'combat.shot_started')} desktop=${desktopScreenshotPath} mobile=${mobileScreenshotPath} notes=${notesPath}`,
+    );
+  } catch (error) {
+    if (client?.page) {
+      await writeFailureArtifact(client, nonce, error).catch((artifactError) => {
+        console.error(`darkorbit-feel failure artifact error: ${artifactError?.stack ?? artifactError}`);
+      });
+    }
+    throw error;
   } finally {
     if (context) await context.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
@@ -202,6 +247,85 @@ async function main() {
 
 function originReady(state) {
   return state?.connectionStatus === 'connected' && state.auth?.session?.authenticated === true && state.currentMap?.public_map_key === '1-1';
+}
+
+function note(client, phase, details = {}) {
+  client.runNotes.push({
+    phase,
+    at_ms: Date.now() - client.startedAt,
+    ...details,
+  });
+}
+
+async function observeLongRun(client, durationMS) {
+  const deadline = Date.now() + durationMS;
+  note(client, 'long-run-started', { duration_ms: durationMS });
+  while (Date.now() < deadline) {
+    const state = await smoke(client);
+    note(client, 'long-run-sample', {
+      map: state.currentMap?.public_map_key,
+      visible_npcs: Object.values(state.visibleEntities ?? {}).filter((entity) => entity?.entity_type === 'npc').length,
+      live_npcs: Object.values(state.visibleEntities ?? {}).filter((entity) => entity?.entity_type === 'npc' && Number(entity.combat?.hp ?? 1) > 0).length,
+      ship_disabled: Boolean(state.ship?.disabled),
+      pending_commands: Object.keys(state.pendingCommands ?? {}).length,
+    });
+    if (Object.keys(state.pendingCommands ?? {}).length === 0) {
+      await sendDriverCommand(client, 'combatState', [], 'combat.state').catch((error) => {
+        note(client, 'long-run-keepalive-error', { message: String(error?.message ?? error) });
+      });
+    }
+    await delay(Math.min(15000, Math.max(250, deadline - Date.now())));
+  }
+  note(client, 'long-run-complete', { duration_ms: durationMS });
+}
+
+async function writeRunNotes(client, notesPath, artifacts) {
+  const frameList = await frames(client);
+  const state = await smoke(client);
+  const notes = {
+    generated_at: new Date().toISOString(),
+    artifacts,
+    summary: {
+      map: state.currentMap?.public_map_key,
+      authenticated: state.auth?.session?.authenticated === true,
+      shot_started_events: inboundEventCount(frameList, 'combat.shot_started'),
+      damage_events: inboundEventCount(frameList, 'combat.damage'),
+      loot_created_events: inboundEventCount(frameList, 'loot.created'),
+      outbound_ops: Array.from(new Set(outboundMessages(frameList).map((message) => message.op))).sort(),
+      diagnostics: client.diagnostics,
+    },
+    phases: client.runNotes,
+  };
+  await writeFile(notesPath, `${JSON.stringify(notes, null, 2)}\n`);
+}
+
+async function writeFailureArtifact(client, nonce, error) {
+  const failureScreenshotPath = resolve(screenshotDir, `darkorbit-feel-failure-${nonce}.png`);
+  const failureNotesPath = resolve(screenshotDir, `darkorbit-feel-failure-${nonce}.json`);
+  const frameList = await frames(client).catch(() => []);
+  const state = await smoke(client).catch(() => null);
+  await client.page.screenshot({ path: failureScreenshotPath, fullPage: false }).catch(() => {});
+  await writeFile(
+    failureNotesPath,
+    `${JSON.stringify(
+      {
+        generated_at: new Date().toISOString(),
+        error: String(error?.stack ?? error),
+        screenshot: failureScreenshotPath,
+        state: state ? smokeSummary(state) : null,
+        combat_engagement: state?.combatEngagement ?? null,
+        recent_inbound_events: inboundMessages(frameList).slice(-30),
+        recent_outbound_ops: outboundMessages(frameList)
+          .slice(-30)
+          .map((message) => ({ op: message.op, request_id: message.request_id, payload: message.payload })),
+        phases: client.runNotes,
+        diagnostics: client.diagnostics,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  console.error(`darkorbit-feel failure artifacts screenshot=${failureScreenshotPath} notes=${failureNotesPath}`);
 }
 
 async function installWebSocketCanary(client) {
@@ -698,14 +822,17 @@ async function waitForInboundEventCount(client, type, count, timeoutMS) {
 
 async function waitForInboundEvent(client, type, predicate, label, timeoutMS) {
   let found = null;
+  let lastSeen = [];
   await waitFor(async () => {
-    for (const message of inboundMessages(await frames(client), type)) {
+    const candidates = inboundMessages(await frames(client), type);
+    lastSeen = candidates.slice(-8).map((message) => ({ type: message.type, payload: message.payload }));
+    for (const message of candidates) {
       if (predicate(message)) {
         found = message;
         return;
       }
     }
-    assert(false, `${label} event missing`);
+    assert(false, `${label} event missing; recent ${compact(lastSeen)}`);
   }, timeoutMS, label);
   return found;
 }
@@ -721,6 +848,21 @@ function inboundMessages(frameList, type = '') {
       continue;
     }
     if (!type || parsed.type === type) messages.push(parsed);
+  }
+  return messages;
+}
+
+function outboundMessages(frameList, op = '') {
+  const messages = [];
+  for (const frame of frameList ?? []) {
+    if (frame.direction !== 'out' || !frame.text) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(frame.text);
+    } catch {
+      continue;
+    }
+    if (!op || parsed.op === op) messages.push(parsed);
   }
   return messages;
 }
