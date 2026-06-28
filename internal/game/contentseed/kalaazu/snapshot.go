@@ -27,6 +27,7 @@ type DefaultRows struct {
 	CraftRecipeRows        []content.SnapshotRow
 	ProductionBuildingRows []content.SnapshotRow
 	ProductionRuleRows     []content.SnapshotRow
+	CombatRuleRows         []content.SnapshotRow
 	NPCTemplateRows        []content.SnapshotRow
 	SpawnAreaRows          []content.SnapshotRow
 	EnemyPoolRows          []content.SnapshotRow
@@ -87,6 +88,10 @@ func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
 	if err != nil {
 		return DefaultRows{}, err
 	}
+	combatRuleRows, err := mapCombatRuleRows(itemRows, moduleRows, npcRows)
+	if err != nil {
+		return DefaultRows{}, err
+	}
 	scannerConfigRows, err := mapScannerConfigRows(mapRows.MapRows)
 	if err != nil {
 		return DefaultRows{}, err
@@ -110,6 +115,7 @@ func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
 		CraftRecipeRows:        craftRecipeRows,
 		ProductionBuildingRows: productionBuildingRows,
 		ProductionRuleRows:     productionRuleRows,
+		CombatRuleRows:         combatRuleRows,
 		NPCTemplateRows:        npcRows.NPCTemplates,
 		SpawnAreaRows:          npcRows.SpawnAreas,
 		EnemyPoolRows:          npcRows.EnemyPools,
@@ -266,6 +272,7 @@ func buildImportReport(source defaultSourceRows, rows DefaultRows) ImportReport 
 			content.ContentTypeCraftRecipe:        len(rows.CraftRecipeRows),
 			content.ContentTypeProductionBuilding: len(rows.ProductionBuildingRows),
 			content.ContentTypeProductionRules:    len(rows.ProductionRuleRows),
+			content.ContentTypeCombatRules:        len(rows.CombatRuleRows),
 			content.ContentTypeNPCTemplate:        len(rows.NPCTemplateRows),
 			content.ContentTypeSpawnArea:          len(rows.SpawnAreaRows),
 			content.ContentTypeEnemyPool:          len(rows.EnemyPoolRows),

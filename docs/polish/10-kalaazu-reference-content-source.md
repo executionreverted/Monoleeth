@@ -157,6 +157,10 @@ Implemented mapping rules:
   builder over the Kalaazu/default production building and resource rows. The
   selected source dumps do not contain planet production rule rows, so this
   remains an explicit default design row, not runtime static catalog truth.
+- Combat rules: `combat_rules` is produced by the Kalaazu default seed builder
+  over Kalaazu/default module, item, and NPC rows. The selected source dumps do
+  not contain player combat rule rows, so this remains an explicit default
+  design row, not runtime static catalog truth.
 - Starter config: `starter_config` is produced by the Kalaazu default seed
   builder, projecting the first Kalaazu starter enemy pool and Phoenix display
   into the existing account/session starter contracts.
@@ -170,13 +174,13 @@ Implemented mapping rules:
   enumerates every default snapshot row that still comes from local legacy
   content instead of Kalaazu source rows. The bridge is an explicit per-row
   allowlist, not a broad type-level exemption. Current temporary bridge
-  categories are quest templates/rewards and combat rules. Map shells, portals,
-  NPC templates, spawn areas, enemy pools, NPC drop
-  profiles, aggro profiles, leash profiles, ship rows, shop products, loot
-  tables, craft recipes, production buildings, starter config, scanner config,
-  route policy, production rules, projected starter laser/shield/utility module
-  rows, their item rows, projected material item rows, and special/default item
-  contract rows must remain fully Kalaazu-derived.
+  categories are quest templates/rewards. Map shells, portals, NPC templates,
+  spawn areas, enemy pools, NPC drop profiles, aggro profiles, leash profiles,
+  ship rows, shop products, loot tables, craft recipes, production buildings,
+  starter config, scanner config, route policy, production rules, combat rules,
+  projected starter laser/shield/utility module rows, their item rows,
+  projected material item rows, and special/default item contract rows must
+  remain fully Kalaazu-derived.
 
 This belongs to Phase 7 of:
 

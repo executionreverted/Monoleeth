@@ -112,10 +112,10 @@ for phase status; this file is a compact pending-work index.
   Kalaazu-resource loot tables, a Kalaazu-owned starter config, Kalaazu-owned
   scanner config, Kalaazu-owned route policy, and Kalaazu/default-owned special
   item contract rows plus craft recipes, production buildings, and production
-  rules, with
+  rules plus combat rules, with
   source/imported/unsupported counts recorded by the import report. Legacy
   static catalog rows still bridge systems Kalaazu does not define yet: XP,
-  quests and combat rules.
+  quests.
   Kalaazu speed-generator items now map into module speed stats. Next
   work: remove or explicitly replace those remaining static bridge rows, expand
   draft / publish / rollback tooling, and build the admin CMS UI for monsters,
@@ -1210,11 +1210,12 @@ Task 001 release proof must be rebuilt through
 - [ ] Replace remaining explicit Kalaazu default-seed legacy bridge rows.
   `contentseed.DefaultSnapshotLegacyBridgeReport` now makes every non-Kalaazu
   default snapshot row explicit and tested through a per-row allowlist, but
-  quests and combat rules still need domain-owned Kalaazu/default replacements.
+  quests still need domain-owned Kalaazu/default replacements.
   Ship rows, shop products, loot tables, starter config, scanner config, route
   policy, starter laser/shield/utility module rows, their item rows, and
   material/special item aliases plus starter craft recipes and production
-  buildings/rules are now produced by the Kalaazu default seed builder.
+  buildings/rules plus combat rules are now produced by the Kalaazu default
+  seed builder.
   Source:
   `internal/game/contentseed/snapshot_bridge.go`.
 - [x] Wire realtime gateway request handling to authenticated session and

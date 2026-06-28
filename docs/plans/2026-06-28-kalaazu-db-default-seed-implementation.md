@@ -96,6 +96,9 @@ Completed and committed:
   Kalaazu default row builder over Kalaazu/default production building rows, so
   the bridge report fails if production rules regress to local/static
   ownership.
+- Task 8 bridge reduction slice: `combat_rules` is now emitted by the Kalaazu
+  default row builder over Kalaazu/default module, item, and NPC rows, so the
+  bridge report fails if combat rules regress to local/static ownership.
 
 Remaining before this plan is complete:
 

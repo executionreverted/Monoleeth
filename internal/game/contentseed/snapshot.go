@@ -81,6 +81,7 @@ func appendCoreRows(snapshot *content.Snapshot, bundle content.GameplayContent) 
 	applyKalaazuStarterConfigRows(snapshot, kalaazuRows)
 	applyKalaazuRoutePolicyRows(snapshot, kalaazuRows)
 	applyKalaazuProductionRuleRows(snapshot, kalaazuRows)
+	applyKalaazuCombatRuleRows(snapshot, kalaazuRows)
 	return nil
 }
 
@@ -156,6 +157,10 @@ func applyKalaazuRoutePolicyRows(snapshot *content.Snapshot, rows kalaazu.Defaul
 
 func applyKalaazuProductionRuleRows(snapshot *content.Snapshot, rows kalaazu.DefaultRows) {
 	snapshot.ProductionRules = rows.ProductionRuleRows
+}
+
+func applyKalaazuCombatRuleRows(snapshot *content.Snapshot, rows kalaazu.DefaultRows) {
+	snapshot.CombatRules = rows.CombatRuleRows
 }
 
 func appendServerRuleRows(snapshot *content.Snapshot, bundle content.GameplayContent) error {

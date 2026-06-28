@@ -59,6 +59,7 @@ func TestDefaultSnapshotLegacyBridgeReportCoversEveryNonKalaazuRow(t *testing.T)
 			content.ContentTypeScannerConfig,
 			content.ContentTypeRoutePolicy,
 			content.ContentTypeProductionRules,
+			content.ContentTypeCombatRules,
 			content.ContentTypeNPCTemplate,
 			content.ContentTypeSpawnArea,
 			content.ContentTypeEnemyPool,
@@ -79,11 +80,21 @@ func TestDefaultSnapshotLegacyBridgeReportNamesExpectedTemporaryRows(t *testing.
 		contentType content.ContentType
 		contentID   content.ContentID
 	}{
-		{content.ContentTypeCombatRules, "combat_rules"},
+		{content.ContentTypeQuestTemplate, "quest_kill_pirates_r1"},
 	} {
 		if !legacyBridgeReportHasRow(report, want.contentType, want.contentID) {
 			t.Fatalf("bridge report missing expected temporary row %s/%s", want.contentType, want.contentID)
 		}
+	}
+}
+
+func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeCombatRules(t *testing.T) {
+	report, err := DefaultSnapshotLegacyBridgeReport(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("DefaultSnapshotLegacyBridgeReport() error = %v, want nil", err)
+	}
+	if legacyBridgeReportHasRow(report, content.ContentTypeCombatRules, "combat_rules") {
+		t.Fatalf("bridge report contains combat_rules/combat_rules, want Kalaazu/default combat rules projection")
 	}
 }
 

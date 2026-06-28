@@ -28,6 +28,7 @@ func TestBuildDefaultRowsReturnsImportReportAndAllSupportedGroups(t *testing.T) 
 		rows.Report.ImportedRows[content.ContentTypeCraftRecipe] != 3 ||
 		rows.Report.ImportedRows[content.ContentTypeProductionBuilding] != 3 ||
 		rows.Report.ImportedRows[content.ContentTypeProductionRules] != 1 ||
+		rows.Report.ImportedRows[content.ContentTypeCombatRules] != 1 ||
 		rows.Report.ImportedRows[content.ContentTypeEnemyPool] != 11 ||
 		rows.Report.ImportedRows[content.ContentTypeScannerConfig] != 1 ||
 		rows.Report.ImportedRows[content.ContentTypeStarterConfig] != 1 ||

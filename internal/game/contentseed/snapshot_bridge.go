@@ -85,6 +85,7 @@ func kalaazuDefaultRowIDs(rows kalaazu.DefaultRows) map[content.ContentType]map[
 	add(content.ContentTypeStarterConfig, rows.StarterConfigRows)
 	add(content.ContentTypeRoutePolicy, rows.RoutePolicyRows)
 	add(content.ContentTypeProductionRules, rows.ProductionRuleRows)
+	add(content.ContentTypeCombatRules, rows.CombatRuleRows)
 	return out
 }
 
@@ -120,9 +121,6 @@ var explicitLegacyBridgeReasons = map[content.ContentType]map[content.ContentID]
 		"quest_rewards.quest_kill_void_raiders_r3":     "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
 		"quest_rewards.quest_scan_planets_r1":          "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
 		"quest_rewards.quest_scan_signals_r1":          "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-	},
-	content.ContentTypeCombatRules: {
-		"combat_rules": "Local combat rules bridge; selected Kalaazu dumps do not include player combat-rule rows.",
 	},
 }
 
