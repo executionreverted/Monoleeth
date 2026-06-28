@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"gameproject/internal/game/content"
+	"gameproject/internal/game/ships"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
 )
@@ -27,6 +28,9 @@ func TestBuildMVPSnapshotUsesKalaazuStarterMapAndNPCRows(t *testing.T) {
 	if len(snapshot.MapPortals) == 0 {
 		t.Fatal("map portal rows empty, want Kalaazu portal graph")
 	}
+	if !hasSeedRow(snapshot.Ships, "ship_goliath") {
+		t.Fatal("ship_goliath row missing, want Kalaazu ship seed appended")
+	}
 
 	starter := requireSeedMapRow(t, snapshot.Maps, "map_1_1")
 	if starter.PublicMapKey != "1-1" || starter.Bounds.MaxX != 20800 || starter.Bounds.MaxY != 12800 {
@@ -40,6 +44,11 @@ func TestBuildMVPSnapshotUsesKalaazuStarterMapAndNPCRows(t *testing.T) {
 	saimonPool := requireSeedEnemyPoolRow(t, snapshot.EnemyPools, "map_1_3", "saimon")
 	if saimonPool.MapMaxAlive != 30 || saimonPool.PoolMaxAlive != 12 || saimonPool.InitialAlive != 4 {
 		t.Fatalf("saimon pool = %+v, want Kalaazu amount 30 scaled to 12/4", saimonPool)
+	}
+
+	goliath := requireSeedShipRow(t, snapshot.Ships, "ship_goliath")
+	if goliath.BaseStats.HP != 256000 || goliath.Slots.Offensive != 15 || goliath.Slots.Defensive != 15 {
+		t.Fatalf("goliath = %+v, want Kalaazu ship stats", goliath)
 	}
 }
 
@@ -87,6 +96,31 @@ func requireSeedEnemyPoolRow(t *testing.T, rows []content.SnapshotRow, mapID wor
 	}
 	t.Fatalf("enemy pool %s/%s missing", mapID, npcType)
 	return seedEnemyPoolRow{}
+}
+
+func requireSeedShipRow(t *testing.T, rows []content.SnapshotRow, contentID content.ContentID) ships.ShipDefinition {
+	t.Helper()
+	for _, row := range rows {
+		if row.ContentID != contentID {
+			continue
+		}
+		var definition ships.ShipDefinition
+		if err := json.Unmarshal(row.DataJSON, &definition); err != nil {
+			t.Fatalf("ship row %q json error = %v", row.ContentID, err)
+		}
+		return definition
+	}
+	t.Fatalf("ship row %q missing", contentID)
+	return ships.ShipDefinition{}
+}
+
+func hasSeedRow(rows []content.SnapshotRow, contentID content.ContentID) bool {
+	for _, row := range rows {
+		if row.ContentID == contentID {
+			return true
+		}
+	}
+	return false
 }
 
 type seedMapRow struct {
