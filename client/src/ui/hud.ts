@@ -491,13 +491,15 @@ export class HUD {
           }
           break;
         case 'portal-enter':
-          if (
-            button.dataset.portalId &&
-            button.dataset.portalScope &&
-            button.dataset.portalId === hudSelection.selectedPortalID &&
-            button.dataset.portalScope === hudSelection.selectedPortalScope
-          ) {
-            this.handlers.onPortalEnter(button.dataset.portalId);
+          if (button.dataset.portalId) {
+            const direct = button.dataset.portalDirect === 'true';
+            const selected =
+              button.dataset.portalScope &&
+              button.dataset.portalId === hudSelection.selectedPortalID &&
+              button.dataset.portalScope === hudSelection.selectedPortalScope;
+            if (direct || selected) {
+              this.handlers.onPortalEnter(button.dataset.portalId);
+            }
           }
           break;
         case 'coordinate-item-use':

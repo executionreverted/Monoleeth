@@ -89,6 +89,15 @@
   list-style: none;
 }
 
+.portal-target-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.portal-target-list button {
+  min-width: 5.5rem;
+}
+
 .planet-stack {
   gap: 0.48rem;
 }

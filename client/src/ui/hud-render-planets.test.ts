@@ -721,6 +721,33 @@ describe('actionBar', () => {
     expect(targetHTML).not.toMatch(/data-action="fire"[^>]*disabled/);
   });
 
+  test('target panel exposes direct enter action for visible in-range portals', () => {
+    const state = withCurrentMap(combatReadyState(), {
+      visible_portals: [
+        {
+          portal_id: 'east_gate',
+          display_name: 'East Gate',
+          position: { x: 40, y: 20 },
+          interaction_radius: 80,
+          destination_label: 'Outer Ring',
+          state: 'available',
+        },
+      ],
+    });
+    state.visibleEntities = {
+      'pilot-self': selfEntity(),
+    };
+    state.selectedTargetID = null;
+
+    const targetHTML = targetPanel(state, 20_000);
+
+    expect(targetHTML).toContain('data-portal-target-list="true"');
+    expect(targetHTML).toContain('East Gate');
+    expect(targetHTML).toContain('Outer Ring');
+    expect(targetHTML).toMatch(/data-action="portal-enter"[^>]*data-portal-id="east_gate"[^>]*data-portal-direct="true"[^>]*>Enter/);
+    expect(targetHTML).not.toMatch(/data-action="portal-enter"[^>]*disabled/);
+  });
+
   test('death disabled event disables laser controls and renders server repair state', () => {
     const base = combatReadyState();
     const state = reduceClientState(base, {

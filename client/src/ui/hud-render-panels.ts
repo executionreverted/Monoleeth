@@ -1,4 +1,5 @@
-import type { ClientState } from '../state/types';
+import type { ClientState, PublicPortalSummary } from '../state/types';
+import { OPERATIONS } from '../protocol/envelope';
 import { activeEntityMovement, currentEntityPosition, distanceBetween, selfEntity } from '../state/movement';
 import { isAttackableVisibleTarget } from '../state/target-eligibility';
 import { galaxyIconURL, gatherIconURL, hangarIconURL, inventoryIconURL, laserIconURL, menuIconURL, planetsIconURL, rocketIconURL, scanIconURL, shieldIconURL, shopIconURL, warpIconURL } from './hud-icons';
@@ -657,6 +658,7 @@ export function targetPanel(state: ClientState, serverNow: number | null = Date.
         : '<div class="empty-line target-empty" data-target-empty="true">Select a contact.</div>'
     }
     ${targetActions}
+    ${portalTargetActions(state, serverNow)}
   `;
 }
 
@@ -676,6 +678,75 @@ export function targetActionButtons(target: VisibleEntity | null, laser: QuickAc
     return '';
   }
   return `<div class="segmented target-actions">${buttons.join('')}</div>`;
+}
+
+function portalTargetActions(state: ClientState, serverNow: number | null): string {
+  const portals = visiblePortalSummaries(state);
+  if (portals.length === 0) {
+    return '';
+  }
+  const local = selfEntity(state.visibleEntities);
+  const now = serverNow ?? Date.now();
+  return `
+    <div class="systems-subhead">Portals</div>
+    <ul class="compact-list portal-target-list" data-portal-target-list="true">
+      ${portals.slice(0, 3).map((portal) => portalTargetRow(state, portal, local, now)).join('')}
+    </ul>
+  `;
+}
+
+function visiblePortalSummaries(state: ClientState): PublicPortalSummary[] {
+  const portals: PublicPortalSummary[] = [];
+  const seen = new Set<string>();
+  for (const source of [state.currentMap?.visible_portals, state.minimap?.visible_portals]) {
+    for (const portal of source ?? []) {
+      if (!portal.portal_id || seen.has(portal.portal_id)) {
+        continue;
+      }
+      seen.add(portal.portal_id);
+      portals.push(portal);
+    }
+  }
+  return portals;
+}
+
+function portalTargetRow(state: ClientState, portal: PublicPortalSummary, local: VisibleEntity | null, now: number): string {
+  const distance = local ? distanceBetween(currentEntityPosition(local, now), portal.position) : null;
+  const radius = Math.max(0, Number(portal.interaction_radius) || 0);
+  const readyAt = Math.max(portal.cooldown_ready_at_ms ?? 0, state.portalCooldowns[portal.portal_id] ?? 0);
+  const cooldown = Math.max(0, readyAt - now);
+  const pending = hasPendingOp(state, OPERATIONS.portalEnter);
+  const inRange = distance !== null && radius > 0 && distance <= radius;
+  const available = portal.state === 'available' || portal.state === undefined;
+  const enabled = realtimeReady(state) && inRange && available && cooldown <= 0 && !pending;
+  const label = portal.display_name || portal.label || portal.portal_id;
+  const detail = cooldown > 0
+    ? `Ready ${formatCooldown(cooldown)}`
+    : pending
+      ? 'Pending'
+      : !realtimeReady(state)
+        ? 'Offline'
+        : !inRange
+          ? distance === null
+            ? 'No position'
+            : `${Math.round(distance)}u / ${Math.round(radius)}u`
+          : portal.destination_label || portal.state || 'Ready';
+  const title = enabled
+    ? 'Enter this portal.'
+    : !inRange
+      ? 'Move inside the portal radius first.'
+      : cooldown > 0
+        ? `Portal cooldown ${formatCooldown(cooldown)}.`
+        : pending
+          ? 'Portal entry is pending.'
+          : 'Portal entry unavailable.';
+  return `
+    <li data-portal-id="${escapeHTML(portal.portal_id)}">
+      <span>${escapeHTML(label)}</span>
+      <strong>${escapeHTML(detail)}</strong>
+      <button type="button" data-action="portal-enter" data-portal-id="${escapeHTML(portal.portal_id)}" data-portal-direct="true" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">Enter</button>
+    </li>
+  `;
 }
 
 export function shipPanel(state: ClientState): string {
