@@ -812,8 +812,8 @@ func shopProductForSource(source mappedKalaazuItemSource, shipIDs map[foundation
 		},
 		GrantTarget: catalog.GrantTarget{Kind: grantKind, RefID: source.ItemID.String(), Quantity: 1},
 		Price: catalog.PricePolicy{
-			Currency: shopCurrency(source.Source),
-			Amount:   source.Source.Price,
+			Currency: shopCurrencyForSource(source.Source),
+			Amount:   shopPriceForSource(source.Source),
 			Fixed:    true,
 		},
 		Stock:        catalog.StockPolicy{Kind: catalog.StockPolicyUnlimited},
@@ -860,9 +860,53 @@ func shopSubcategory(source kalaazuItemSource) string {
 	}
 }
 
-func shopCurrency(source kalaazuItemSource) catalog.PriceCurrency {
+func shopCurrencyForSource(source kalaazuItemSource) catalog.PriceCurrency {
 	if source.IsElite {
 		return catalog.PriceCurrencyPremium
 	}
+	if source.Price <= 0 && fallbackPremiumPriceForSource(source) > 0 {
+		return catalog.PriceCurrencyPremium
+	}
 	return catalog.PriceCurrencyCredits
+}
+
+func shopPriceForSource(source kalaazuItemSource) int64 {
+	if source.Price > 0 {
+		return source.Price
+	}
+	if premium := fallbackPremiumPriceForSource(source); premium > 0 {
+		return premium
+	}
+	if credits := fallbackCreditPriceForSource(source); credits > 0 {
+		return credits
+	}
+	return 1
+}
+
+func fallbackPremiumPriceForSource(source kalaazuItemSource) int64 {
+	switch source.LootID {
+	case "ammunition_laser_mcb_25", "ammunition_laser_sab_50":
+		return 1
+	case "ammunition_laser_rsb_75":
+		return 5
+	default:
+		return 0
+	}
+}
+
+func fallbackCreditPriceForSource(source kalaazuItemSource) int64 {
+	switch source.LootID {
+	case "equipment_weapon_laser_lf_1":
+		return 10_000
+	case "equipment_weapon_laser_mp_1":
+		return 40_000
+	case "equipment_weapon_laser_lf_2":
+		return 250_000
+	case "equipment_weapon_laser_lf_3":
+		return 10_000
+	case "equipment_weapon_laser_lf_4":
+		return 15_000
+	default:
+		return 0
+	}
 }

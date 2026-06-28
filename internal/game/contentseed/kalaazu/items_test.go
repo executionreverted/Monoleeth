@@ -224,9 +224,22 @@ func TestBuildStarterShopRowsMapsBuyableRows(t *testing.T) {
 	if moduleProduct.ProductType != "module" || moduleProduct.GrantTarget.Kind != "module" || moduleProduct.GrantTarget.RefID != "equipment_weapon_laser_lf_1" {
 		t.Fatalf("lf1 product = %+v, want module product", moduleProduct)
 	}
+	lf3Product := requireShopProductForTest(t, rows, "product_equipment_weapon_laser_lf_3")
+	if lf3Product.Price.Amount != 10_000 || lf3Product.Price.Currency != catalog.PriceCurrencyCredits {
+		t.Fatalf("lf3 product price = %+v, want 10000 credit fallback for zero-price Kalaazu row", lf3Product.Price)
+	}
 	itemProduct := requireShopProductForTest(t, rows, "product_ammunition_laser_lcb_10")
 	if itemProduct.ProductType != "item" || itemProduct.GrantTarget.Kind != "item" || itemProduct.GrantTarget.RefID != "ammunition_laser_lcb_10" {
 		t.Fatalf("lcb product = %+v, want item product", itemProduct)
+	}
+	for _, row := range rows {
+		var product catalog.ShopProductDefinition
+		if err := json.Unmarshal(row.DataJSON, &product); err != nil {
+			t.Fatalf("shop row %q json error = %v", row.ContentID, err)
+		}
+		if product.Availability.Available && product.Price.Amount <= 0 {
+			t.Fatalf("shop row %q price = %+v, want available product with positive price", row.ContentID, product.Price)
+		}
 	}
 }
 
