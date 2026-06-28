@@ -31,6 +31,7 @@ sparse, too manual, too safe, too panel-driven, and too short on desire.
 9. [Polish Backlog](./09-polish-backlog.md)
 10. [Kalaazu Reference Content Source](./10-kalaazu-reference-content-source.md)
 11. [DarkOrbit Feel Browser Proof Review](./11-darkorbit-feel-browser-proof-review.md)
+12. [DarkOrbit Ammo And Weapon Combat Plan](./12-darkorbit-ammo-weapon-combat-plan.md)
 
 ## Read This First
 
