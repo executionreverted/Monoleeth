@@ -87,6 +87,11 @@ Completed and committed:
   emitted by the Kalaazu default row builder over Kalaazu-projected item/ship
   contract rows, so the bridge report fails if craft recipes regress to
   local/static ownership.
+- Task 8 bridge reduction slice: production building rows
+  `iron_extractor_l1`, `iron_extractor_l2`, and `alloy_foundry_l1` are now
+  emitted by the Kalaazu default row builder over Kalaazu-projected resource
+  rows, so the bridge report fails if production buildings regress to
+  local/static ownership.
 
 Remaining before this plan is complete:
 

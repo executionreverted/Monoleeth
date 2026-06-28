@@ -53,6 +53,7 @@ func TestDefaultSnapshotLegacyBridgeReportCoversEveryNonKalaazuRow(t *testing.T)
 			content.ContentTypeItem,
 			content.ContentTypeModule,
 			content.ContentTypeCraftRecipe,
+			content.ContentTypeProductionBuilding,
 			content.ContentTypeShopProduct,
 			content.ContentTypeShip,
 			content.ContentTypeScannerConfig,
@@ -97,6 +98,22 @@ func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeCraftRecipes(t *testing.T
 	} {
 		if legacyBridgeReportHasRow(report, content.ContentTypeCraftRecipe, contentID) {
 			t.Fatalf("bridge report contains craft_recipe/%s, want Kalaazu/default recipe projection", contentID)
+		}
+	}
+}
+
+func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeProductionBuildings(t *testing.T) {
+	report, err := DefaultSnapshotLegacyBridgeReport(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("DefaultSnapshotLegacyBridgeReport() error = %v, want nil", err)
+	}
+	for _, contentID := range []content.ContentID{
+		"alloy_foundry_l1",
+		"iron_extractor_l1",
+		"iron_extractor_l2",
+	} {
+		if legacyBridgeReportHasRow(report, content.ContentTypeProductionBuilding, contentID) {
+			t.Fatalf("bridge report contains production_building/%s, want Kalaazu/default production projection", contentID)
 		}
 	}
 }

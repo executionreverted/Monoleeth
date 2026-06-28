@@ -92,6 +92,7 @@ func applyKalaazuStarterRows(snapshot *content.Snapshot, rows kalaazu.DefaultRow
 	snapshot.ShopProducts = rows.ShopProductRows
 	snapshot.LootTables = rows.LootTableRows
 	snapshot.CraftRecipes = rows.CraftRecipeRows
+	snapshot.ProductionBuildings = rows.ProductionBuildingRows
 	snapshot.NPCTemplates = rows.NPCTemplateRows
 	snapshot.SpawnAreas = rows.SpawnAreaRows
 	snapshot.EnemyPools = rows.EnemyPoolRows

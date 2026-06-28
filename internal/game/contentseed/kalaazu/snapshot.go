@@ -17,24 +17,25 @@ type ImportReport struct {
 }
 
 type DefaultRows struct {
-	MapRows           []content.SnapshotRow
-	MapPortalRows     []content.SnapshotRow
-	ItemRows          []content.SnapshotRow
-	ModuleRows        []content.SnapshotRow
-	ShipRows          []content.SnapshotRow
-	ShopProductRows   []content.SnapshotRow
-	LootTableRows     []content.SnapshotRow
-	CraftRecipeRows   []content.SnapshotRow
-	NPCTemplateRows   []content.SnapshotRow
-	SpawnAreaRows     []content.SnapshotRow
-	EnemyPoolRows     []content.SnapshotRow
-	NPCDropRows       []content.SnapshotRow
-	NPCAggroRows      []content.SnapshotRow
-	NPCLeashRows      []content.SnapshotRow
-	ScannerConfigRows []content.SnapshotRow
-	StarterConfigRows []content.SnapshotRow
-	RoutePolicyRows   []content.SnapshotRow
-	Report            ImportReport
+	MapRows                []content.SnapshotRow
+	MapPortalRows          []content.SnapshotRow
+	ItemRows               []content.SnapshotRow
+	ModuleRows             []content.SnapshotRow
+	ShipRows               []content.SnapshotRow
+	ShopProductRows        []content.SnapshotRow
+	LootTableRows          []content.SnapshotRow
+	CraftRecipeRows        []content.SnapshotRow
+	ProductionBuildingRows []content.SnapshotRow
+	NPCTemplateRows        []content.SnapshotRow
+	SpawnAreaRows          []content.SnapshotRow
+	EnemyPoolRows          []content.SnapshotRow
+	NPCDropRows            []content.SnapshotRow
+	NPCAggroRows           []content.SnapshotRow
+	NPCLeashRows           []content.SnapshotRow
+	ScannerConfigRows      []content.SnapshotRow
+	StarterConfigRows      []content.SnapshotRow
+	RoutePolicyRows        []content.SnapshotRow
+	Report                 ImportReport
 }
 
 func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
@@ -73,6 +74,10 @@ func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
 	if err != nil {
 		return DefaultRows{}, err
 	}
+	productionBuildingRows, err := mapProductionBuildingRows(itemRows)
+	if err != nil {
+		return DefaultRows{}, err
+	}
 	npcRows, err := mapStarterNPCRows(source.Maps, source.MapNPCs, source.NPCs)
 	if err != nil {
 		return DefaultRows{}, err
@@ -90,23 +95,24 @@ func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
 		return DefaultRows{}, err
 	}
 	rows := DefaultRows{
-		MapRows:           mapRows.MapRows,
-		MapPortalRows:     mapRows.PortalRows,
-		ItemRows:          itemRows,
-		ModuleRows:        moduleRows,
-		ShipRows:          shipRows,
-		ShopProductRows:   shopRows,
-		LootTableRows:     lootRows,
-		CraftRecipeRows:   craftRecipeRows,
-		NPCTemplateRows:   npcRows.NPCTemplates,
-		SpawnAreaRows:     npcRows.SpawnAreas,
-		EnemyPoolRows:     npcRows.EnemyPools,
-		NPCDropRows:       npcRows.NPCDropProfiles,
-		NPCAggroRows:      npcRows.NPCAggroProfiles,
-		NPCLeashRows:      npcRows.NPCLeashProfiles,
-		ScannerConfigRows: scannerConfigRows,
-		StarterConfigRows: starterConfigRows,
-		RoutePolicyRows:   routePolicyRows,
+		MapRows:                mapRows.MapRows,
+		MapPortalRows:          mapRows.PortalRows,
+		ItemRows:               itemRows,
+		ModuleRows:             moduleRows,
+		ShipRows:               shipRows,
+		ShopProductRows:        shopRows,
+		LootTableRows:          lootRows,
+		CraftRecipeRows:        craftRecipeRows,
+		ProductionBuildingRows: productionBuildingRows,
+		NPCTemplateRows:        npcRows.NPCTemplates,
+		SpawnAreaRows:          npcRows.SpawnAreas,
+		EnemyPoolRows:          npcRows.EnemyPools,
+		NPCDropRows:            npcRows.NPCDropProfiles,
+		NPCAggroRows:           npcRows.NPCAggroProfiles,
+		NPCLeashRows:           npcRows.NPCLeashProfiles,
+		ScannerConfigRows:      scannerConfigRows,
+		StarterConfigRows:      starterConfigRows,
+		RoutePolicyRows:        routePolicyRows,
 	}
 	rows.Report = buildImportReport(source, rows)
 	return rows, nil
@@ -244,23 +250,24 @@ func buildImportReport(source defaultSourceRows, rows DefaultRows) ImportReport 
 			"maps_portals": len(source.MapPortals),
 		},
 		ImportedRows: map[content.ContentType]int{
-			content.ContentTypeMap:             len(rows.MapRows),
-			content.ContentTypeMapPortal:       len(rows.MapPortalRows),
-			content.ContentTypeItem:            len(rows.ItemRows),
-			content.ContentTypeModule:          len(rows.ModuleRows),
-			content.ContentTypeShip:            len(rows.ShipRows),
-			content.ContentTypeShopProduct:     len(rows.ShopProductRows),
-			content.ContentTypeLootTable:       len(rows.LootTableRows),
-			content.ContentTypeCraftRecipe:     len(rows.CraftRecipeRows),
-			content.ContentTypeNPCTemplate:     len(rows.NPCTemplateRows),
-			content.ContentTypeSpawnArea:       len(rows.SpawnAreaRows),
-			content.ContentTypeEnemyPool:       len(rows.EnemyPoolRows),
-			content.ContentTypeNPCDropProfile:  len(rows.NPCDropRows),
-			content.ContentTypeNPCAggroProfile: len(rows.NPCAggroRows),
-			content.ContentTypeNPCLeashProfile: len(rows.NPCLeashRows),
-			content.ContentTypeScannerConfig:   len(rows.ScannerConfigRows),
-			content.ContentTypeStarterConfig:   len(rows.StarterConfigRows),
-			content.ContentTypeRoutePolicy:     len(rows.RoutePolicyRows),
+			content.ContentTypeMap:                len(rows.MapRows),
+			content.ContentTypeMapPortal:          len(rows.MapPortalRows),
+			content.ContentTypeItem:               len(rows.ItemRows),
+			content.ContentTypeModule:             len(rows.ModuleRows),
+			content.ContentTypeShip:               len(rows.ShipRows),
+			content.ContentTypeShopProduct:        len(rows.ShopProductRows),
+			content.ContentTypeLootTable:          len(rows.LootTableRows),
+			content.ContentTypeCraftRecipe:        len(rows.CraftRecipeRows),
+			content.ContentTypeProductionBuilding: len(rows.ProductionBuildingRows),
+			content.ContentTypeNPCTemplate:        len(rows.NPCTemplateRows),
+			content.ContentTypeSpawnArea:          len(rows.SpawnAreaRows),
+			content.ContentTypeEnemyPool:          len(rows.EnemyPoolRows),
+			content.ContentTypeNPCDropProfile:     len(rows.NPCDropRows),
+			content.ContentTypeNPCAggroProfile:    len(rows.NPCAggroRows),
+			content.ContentTypeNPCLeashProfile:    len(rows.NPCLeashRows),
+			content.ContentTypeScannerConfig:      len(rows.ScannerConfigRows),
+			content.ContentTypeStarterConfig:      len(rows.StarterConfigRows),
+			content.ContentTypeRoutePolicy:        len(rows.RoutePolicyRows),
 		},
 		UnsupportedItems: unsupportedItemCounts(source.Items),
 	}

@@ -74,6 +74,7 @@ func kalaazuDefaultRowIDs(rows kalaazu.DefaultRows) map[content.ContentType]map[
 	add(content.ContentTypeShopProduct, rows.ShopProductRows)
 	add(content.ContentTypeLootTable, rows.LootTableRows)
 	add(content.ContentTypeCraftRecipe, rows.CraftRecipeRows)
+	add(content.ContentTypeProductionBuilding, rows.ProductionBuildingRows)
 	add(content.ContentTypeNPCTemplate, rows.NPCTemplateRows)
 	add(content.ContentTypeSpawnArea, rows.SpawnAreaRows)
 	add(content.ContentTypeEnemyPool, rows.EnemyPoolRows)
@@ -87,11 +88,6 @@ func kalaazuDefaultRowIDs(rows kalaazu.DefaultRows) map[content.ContentType]map[
 }
 
 var explicitLegacyBridgeReasons = map[content.ContentType]map[content.ContentID]string{
-	content.ContentTypeProductionBuilding: {
-		"alloy_foundry_l1":  "Local production building bridge; selected Kalaazu dumps do not include planet production rows.",
-		"iron_extractor_l1": "Local production building bridge; selected Kalaazu dumps do not include planet production rows.",
-		"iron_extractor_l2": "Local production building bridge; selected Kalaazu dumps do not include planet production rows.",
-	},
 	content.ContentTypeQuestTemplate: {
 		"quest_build_extractor_r1":       "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
 		"quest_build_storage_r1":         "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",

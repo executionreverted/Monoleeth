@@ -148,6 +148,11 @@ Implemented mapping rules:
   Kalaazu-projected item and ship contract rows. The selected source dumps do
   not contain craft recipe rows, so these remain explicit default design rows,
   not runtime static catalog truth.
+- Production buildings: `iron_extractor_l1`, `iron_extractor_l2`, and
+  `alloy_foundry_l1` are produced by the Kalaazu default seed builder over
+  Kalaazu-projected resource rows. The selected source dumps do not contain
+  planet production rows, so these remain explicit default design rows, not
+  runtime static catalog truth.
 - Starter config: `starter_config` is produced by the Kalaazu default seed
   builder, projecting the first Kalaazu starter enemy pool and Phoenix display
   into the existing account/session starter contracts.
@@ -161,10 +166,10 @@ Implemented mapping rules:
   enumerates every default snapshot row that still comes from local legacy
   content instead of Kalaazu source rows. The bridge is an explicit per-row
   allowlist, not a broad type-level exemption. Current temporary bridge
-  categories are production buildings, quest templates/rewards, production
-  rules, and combat rules. Map shells, portals, NPC templates, spawn areas,
-  enemy pools, NPC drop profiles, aggro profiles, leash profiles, ship rows,
-  shop products, loot tables, craft recipes, starter config, scanner config,
+  categories are quest templates/rewards, production rules, and combat rules.
+  Map shells, portals, NPC templates, spawn areas, enemy pools, NPC drop
+  profiles, aggro profiles, leash profiles, ship rows, shop products, loot
+  tables, craft recipes, production buildings, starter config, scanner config,
   route policy, projected starter laser/shield/utility module rows, their item
   rows, projected material item rows, and special/default item contract rows
   must remain fully Kalaazu-derived.
