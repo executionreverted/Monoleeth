@@ -73,42 +73,22 @@ func appendCoreRows(snapshot *content.Snapshot, bundle content.GameplayContent) 
 }
 
 func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
-	mapRows, err := kalaazu.BuildStarterMapRows(kalaazu.DefaultSeedFS())
+	rows, err := kalaazu.BuildDefaultRows(kalaazu.DefaultSeedFS())
 	if err != nil {
 		return err
 	}
-	itemRows, err := kalaazu.BuildStarterItemRows(kalaazu.DefaultSeedFS())
-	if err != nil {
-		return err
-	}
-	moduleRows, err := kalaazu.BuildStarterModuleRows(kalaazu.DefaultSeedFS())
-	if err != nil {
-		return err
-	}
-	npcRows, err := kalaazu.BuildStarterNPCRows(kalaazu.DefaultSeedFS())
-	if err != nil {
-		return err
-	}
-	shipRows, err := kalaazu.BuildStarterShipRows(kalaazu.DefaultSeedFS())
-	if err != nil {
-		return err
-	}
-	shopRows, err := kalaazu.BuildStarterShopRows(kalaazu.DefaultSeedFS())
-	if err != nil {
-		return err
-	}
-	snapshot.Maps = mapRows.MapRows
-	snapshot.MapPortals = mapRows.PortalRows
-	snapshot.Items = appendMissingSnapshotRows(snapshot.Items, itemRows)
-	snapshot.Modules = appendMissingSnapshotRows(snapshot.Modules, moduleRows)
-	snapshot.Ships = appendMissingSnapshotRows(snapshot.Ships, shipRows)
-	snapshot.ShopProducts = appendMissingSnapshotRows(snapshot.ShopProducts, shopRows)
-	snapshot.NPCTemplates = npcRows.NPCTemplates
-	snapshot.SpawnAreas = npcRows.SpawnAreas
-	snapshot.EnemyPools = npcRows.EnemyPools
-	snapshot.NPCDropProfiles = npcRows.NPCDropProfiles
-	snapshot.NPCAggroProfiles = npcRows.NPCAggroProfiles
-	snapshot.NPCLeashProfiles = npcRows.NPCLeashProfiles
+	snapshot.Maps = rows.MapRows
+	snapshot.MapPortals = rows.MapPortalRows
+	snapshot.Items = appendMissingSnapshotRows(snapshot.Items, rows.ItemRows)
+	snapshot.Modules = appendMissingSnapshotRows(snapshot.Modules, rows.ModuleRows)
+	snapshot.Ships = appendMissingSnapshotRows(snapshot.Ships, rows.ShipRows)
+	snapshot.ShopProducts = appendMissingSnapshotRows(snapshot.ShopProducts, rows.ShopProductRows)
+	snapshot.NPCTemplates = rows.NPCTemplateRows
+	snapshot.SpawnAreas = rows.SpawnAreaRows
+	snapshot.EnemyPools = rows.EnemyPoolRows
+	snapshot.NPCDropProfiles = rows.NPCDropRows
+	snapshot.NPCAggroProfiles = rows.NPCAggroRows
+	snapshot.NPCLeashProfiles = rows.NPCLeashRows
 	snapshot.NPCEventSpawns = nil
 	return nil
 }
