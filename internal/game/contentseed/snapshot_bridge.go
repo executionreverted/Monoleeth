@@ -9,16 +9,16 @@ import (
 	"gameproject/internal/game/world"
 )
 
-// LegacyBridgeRow documents default-snapshot rows that still come from local
-// legacy content because the selected Kalaazu dumps do not model that system yet.
+// LegacyBridgeRow documents default-snapshot rows that are temporarily allowed
+// to come from local legacy content instead of the Kalaazu default row set.
 type LegacyBridgeRow struct {
 	ContentType content.ContentType `json:"content_type"`
 	ContentID   content.ContentID   `json:"content_id"`
 	Reason      string              `json:"reason"`
 }
 
-// DefaultSnapshotLegacyBridgeReport returns the explicit temporary bridge rows
-// left in the Kalaazu-derived default snapshot.
+// DefaultSnapshotLegacyBridgeReport returns explicit temporary bridge rows left
+// in the Kalaazu-derived default snapshot. A complete default seed returns none.
 func DefaultSnapshotLegacyBridgeReport(worldID world.WorldID) ([]LegacyBridgeRow, error) {
 	snapshot, err := BuildDefaultSnapshot(worldID)
 	if err != nil {
@@ -86,43 +86,12 @@ func kalaazuDefaultRowIDs(rows kalaazu.DefaultRows) map[content.ContentType]map[
 	add(content.ContentTypeRoutePolicy, rows.RoutePolicyRows)
 	add(content.ContentTypeProductionRules, rows.ProductionRuleRows)
 	add(content.ContentTypeCombatRules, rows.CombatRuleRows)
+	add(content.ContentTypeQuestTemplate, rows.QuestTemplateRows)
+	add(content.ContentTypeQuestRewardTable, rows.QuestRewardRows)
 	return out
 }
 
-var explicitLegacyBridgeReasons = map[content.ContentType]map[content.ContentID]string{
-	content.ContentTypeQuestTemplate: {
-		"quest_build_extractor_r1":       "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-		"quest_build_storage_r1":         "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-		"quest_collect_carbon_shards_r1": "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-		"quest_collect_iron_ore_r1":      "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-		"quest_craft_energy_cells_r1":    "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-		"quest_craft_laser_alpha_r2":     "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-		"quest_craft_refined_alloy_r1":   "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-		"quest_deliver_energy_cells_r1":  "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-		"quest_deliver_iron_ore_r1":      "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-		"quest_kill_pirates_r1":          "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-		"quest_kill_raiders_r1":          "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-		"quest_kill_void_raiders_r3":     "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-		"quest_scan_planets_r1":          "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-		"quest_scan_signals_r1":          "Local quest template bridge; selected Kalaazu dumps do not include quest rows.",
-	},
-	content.ContentTypeQuestRewardTable: {
-		"quest_rewards.quest_build_extractor_r1":       "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-		"quest_rewards.quest_build_storage_r1":         "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-		"quest_rewards.quest_collect_carbon_shards_r1": "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-		"quest_rewards.quest_collect_iron_ore_r1":      "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-		"quest_rewards.quest_craft_energy_cells_r1":    "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-		"quest_rewards.quest_craft_laser_alpha_r2":     "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-		"quest_rewards.quest_craft_refined_alloy_r1":   "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-		"quest_rewards.quest_deliver_energy_cells_r1":  "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-		"quest_rewards.quest_deliver_iron_ore_r1":      "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-		"quest_rewards.quest_kill_pirates_r1":          "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-		"quest_rewards.quest_kill_raiders_r1":          "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-		"quest_rewards.quest_kill_void_raiders_r3":     "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-		"quest_rewards.quest_scan_planets_r1":          "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-		"quest_rewards.quest_scan_signals_r1":          "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-	},
-}
+var explicitLegacyBridgeReasons = map[content.ContentType]map[content.ContentID]string{}
 
 func legacyBridgeReason(contentType content.ContentType, contentID content.ContentID) (string, bool) {
 	byID, ok := explicitLegacyBridgeReasons[contentType]

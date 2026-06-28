@@ -99,12 +99,14 @@ Completed and committed:
 - Task 8 bridge reduction slice: `combat_rules` is now emitted by the Kalaazu
   default row builder over Kalaazu/default module, item, and NPC rows, so the
   bridge report fails if combat rules regress to local/static ownership.
+- Task 8 bridge reduction slice: quest template and quest reward table rows
+  are now emitted by the Kalaazu default row builder as explicit default
+  projections over Kalaazu/default NPC, item, recipe, and production rows. The
+  legacy bridge report now has zero expected rows and fails if any default
+  snapshot row is not owned by the Kalaazu default row set.
 
 Remaining before this plan is complete:
 
-- Continue Task 8 hardening by replacing the now-explicit bridge rows with
-  domain-specific Kalaazu/default rows where source data exists or new content
-  design is approved.
 - Run Task 10 full verification, including `go test ./...`, client check, and
   `git diff --check`.
 - Speed generator rows are now mapped through `modules.StatSpeed`; remaining

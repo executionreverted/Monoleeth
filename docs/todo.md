@@ -112,16 +112,17 @@ for phase status; this file is a compact pending-work index.
   Kalaazu-resource loot tables, a Kalaazu-owned starter config, Kalaazu-owned
   scanner config, Kalaazu-owned route policy, and Kalaazu/default-owned special
   item contract rows plus craft recipes, production buildings, and production
-  rules plus combat rules, with
+  rules plus combat rules, plus quest templates and reward tables projected
+  over Kalaazu/default NPC, item, recipe, and production rows, with
   source/imported/unsupported counts recorded by the import report. Legacy
-  static catalog rows still bridge systems Kalaazu does not define yet: XP,
-  quests.
-  Kalaazu speed-generator items now map into module speed stats. Next
-  work: remove or explicitly replace those remaining static bridge rows, expand
-  draft / publish / rollback tooling, and build the admin CMS UI for monsters,
-  drop tables, item stats, recipes, map pools, and planet/scanner tuning. Root
-  browser demo runtime mode has been removed, so CMS UI smoke must use real
-  authenticated server/admin state.
+  default snapshot bridge rows are now gone; the bridge report expects zero
+  rows and fails closed on new non-Kalaazu default rows. Kalaazu speed-generator
+  items now map into module speed stats. Next work: expand draft / publish /
+  rollback tooling, bring unsupported equipment rows into typed mappings where
+  useful, and build the admin CMS UI for monsters, drop tables, item stats,
+  recipes, map pools, and planet/scanner tuning. Root browser demo runtime mode
+  has been removed, so CMS UI smoke must use real authenticated server/admin
+  state.
   Source: `docs/plans/2026-06-24-content-foundation-design.md`.
 - [ ] Tune the first real world sprite set into the final 2D/3D art pass. The
   current renderer now loads concrete assets under `client/src/assets/world/`
@@ -1207,15 +1208,17 @@ Task 001 release proof must be rebuilt through
   uses `combat.state` keepalives so the authenticated WebSocket remains open
   during the longer real-content kill. Source:
   `client/tests/e2e/phase11-darkorbit-feel-flow.mjs`.
-- [ ] Replace remaining explicit Kalaazu default-seed legacy bridge rows.
+- [x] Replace remaining explicit Kalaazu default-seed legacy bridge rows.
   `contentseed.DefaultSnapshotLegacyBridgeReport` now makes every non-Kalaazu
-  default snapshot row explicit and tested through a per-row allowlist, but
-  quests still need domain-owned Kalaazu/default replacements.
+  default snapshot row explicit and tested through a per-row allowlist. Quest
+  templates and reward tables are now emitted by the Kalaazu default row
+  builder as default projections over Kalaazu/default NPC, item, recipe, and
+  production rows, so the expected bridge report is empty.
   Ship rows, shop products, loot tables, starter config, scanner config, route
   policy, starter laser/shield/utility module rows, their item rows, and
   material/special item aliases plus starter craft recipes and production
-  buildings/rules plus combat rules are now produced by the Kalaazu default
-  seed builder.
+  buildings/rules plus combat rules are produced by the Kalaazu default seed
+  builder.
   Source:
   `internal/game/contentseed/snapshot_bridge.go`.
 - [x] Wire realtime gateway request handling to authenticated session and

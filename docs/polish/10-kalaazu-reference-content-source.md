@@ -161,6 +161,10 @@ Implemented mapping rules:
   over Kalaazu/default module, item, and NPC rows. The selected source dumps do
   not contain player combat rule rows, so this remains an explicit default
   design row, not runtime static catalog truth.
+- Quests: quest templates and reward tables are produced by the Kalaazu default
+  seed builder as explicit default projections over Kalaazu/default NPC, item,
+  recipe, and production rows. The selected source dumps do not contain quest
+  rows, so these remain default design rows, not runtime static catalog truth.
 - Starter config: `starter_config` is produced by the Kalaazu default seed
   builder, projecting the first Kalaazu starter enemy pool and Phoenix display
   into the existing account/session starter contracts.
@@ -171,16 +175,16 @@ Implemented mapping rules:
   and routeable resource ids reference Kalaazu-projected material rows such as
   `refined_alloy`.
 - Static bridge posture: `contentseed.DefaultSnapshotLegacyBridgeReport`
-  enumerates every default snapshot row that still comes from local legacy
-  content instead of Kalaazu source rows. The bridge is an explicit per-row
-  allowlist, not a broad type-level exemption. Current temporary bridge
-  categories are quest templates/rewards. Map shells, portals, NPC templates,
-  spawn areas, enemy pools, NPC drop profiles, aggro profiles, leash profiles,
-  ship rows, shop products, loot tables, craft recipes, production buildings,
-  starter config, scanner config, route policy, production rules, combat rules,
-  projected starter laser/shield/utility module rows, their item rows,
-  projected material item rows, and special/default item contract rows must
-  remain fully Kalaazu-derived.
+  enumerates every default snapshot row that is not owned by the Kalaazu
+  default row set and fails closed unless it has an explicit per-row reason.
+  The current expected bridge report is empty. Map shells, portals, NPC
+  templates, spawn areas, enemy pools, NPC drop profiles, aggro profiles, leash
+  profiles, ship rows, shop products, loot tables, craft recipes, production
+  buildings, starter config, scanner config, route policy, production rules,
+  combat rules, quest templates, quest rewards, projected starter
+  laser/shield/utility module rows, their item rows, projected material item
+  rows, and special/default item contract rows must remain owned by the
+  Kalaazu default row builder.
 
 This belongs to Phase 7 of:
 

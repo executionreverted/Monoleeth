@@ -60,18 +60,30 @@ func TestDefaultSnapshotLegacyBridgeReportCoversEveryNonKalaazuRow(t *testing.T)
 			content.ContentTypeRoutePolicy,
 			content.ContentTypeProductionRules,
 			content.ContentTypeCombatRules,
+			content.ContentTypeQuestTemplate,
+			content.ContentTypeQuestRewardTable,
 			content.ContentTypeNPCTemplate,
 			content.ContentTypeSpawnArea,
 			content.ContentTypeEnemyPool,
 			content.ContentTypeNPCDropProfile,
 			content.ContentTypeNPCAggroProfile,
 			content.ContentTypeNPCLeashProfile:
-			t.Fatalf("bridge report contains %s/%s, want map/NPC/shop/ship rows fully Kalaazu-derived", row.ContentType, row.ContentID)
+			t.Fatalf("bridge report contains %s/%s, want default snapshot rows owned by Kalaazu default rows", row.ContentType, row.ContentID)
 		}
 	}
 }
 
-func TestDefaultSnapshotLegacyBridgeReportNamesExpectedTemporaryRows(t *testing.T) {
+func TestDefaultSnapshotLegacyBridgeReportHasNoTemporaryRows(t *testing.T) {
+	report, err := DefaultSnapshotLegacyBridgeReport(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("DefaultSnapshotLegacyBridgeReport() error = %v, want nil", err)
+	}
+	if len(report) != 0 {
+		t.Fatalf("bridge report rows = %+v, want none", report)
+	}
+}
+
+func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeQuests(t *testing.T) {
 	report, err := DefaultSnapshotLegacyBridgeReport(world.WorldID("world-1"))
 	if err != nil {
 		t.Fatalf("DefaultSnapshotLegacyBridgeReport() error = %v, want nil", err)
@@ -81,9 +93,10 @@ func TestDefaultSnapshotLegacyBridgeReportNamesExpectedTemporaryRows(t *testing.
 		contentID   content.ContentID
 	}{
 		{content.ContentTypeQuestTemplate, "quest_kill_pirates_r1"},
+		{content.ContentTypeQuestRewardTable, "quest_rewards.quest_kill_pirates_r1"},
 	} {
-		if !legacyBridgeReportHasRow(report, want.contentType, want.contentID) {
-			t.Fatalf("bridge report missing expected temporary row %s/%s", want.contentType, want.contentID)
+		if legacyBridgeReportHasRow(report, want.contentType, want.contentID) {
+			t.Fatalf("bridge report contains %s/%s, want Kalaazu/default quest projection", want.contentType, want.contentID)
 		}
 	}
 }
