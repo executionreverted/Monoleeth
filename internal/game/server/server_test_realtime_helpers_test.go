@@ -116,10 +116,18 @@ func assertServerFloatNear(t *testing.T, got float64, want float64) {
 }
 func decodeWorldSnapshotForTest(t *testing.T, events []realtime.EventEnvelope) worldSnapshotPayload {
 	t.Helper()
-	var snapshot worldSnapshotPayload
-	if err := json.Unmarshal(events[len(events)-1].Payload, &snapshot); err != nil {
-		t.Fatalf("decode world snapshot: %v", err)
+	for index := len(events) - 1; index >= 0; index-- {
+		if events[index].Type != realtime.EventWorldSnapshot {
+			continue
+		}
+		var snapshot worldSnapshotPayload
+		if err := json.Unmarshal(events[index].Payload, &snapshot); err != nil {
+			t.Fatalf("decode world snapshot: %v", err)
+		}
+		return snapshot
 	}
+	t.Fatalf("events missing world snapshot: %+v", events)
+	var snapshot worldSnapshotPayload
 	return snapshot
 }
 
