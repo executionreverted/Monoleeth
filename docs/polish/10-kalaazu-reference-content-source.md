@@ -115,7 +115,11 @@ Implemented mapping rules:
   as instance items so starter grants use DB-seeded item definitions. Current
   recipe/quest material ids are projected from Kalaazu resource rows so legacy
   IDs like `raw_ore`, `iron_ore`, and `refined_alloy` remain stable while their
-  item definitions come from the default seed builder.
+  item definitions come from the default seed builder. Remaining local item
+  contract ids (`laser_lens`, `energy_cell`, `scanner_circuit`, `warp_coil`,
+  `helium_dust`, `planet_coordinate_scroll`, and `x_core`) are explicit
+  Kalaazu/default projections, keeping existing crafting, coordinate-item, and
+  claim contracts stable while item ownership moves out of local static rows.
 - Ships: `ships.items_id` joins through `items.id`, producing ship rows such as
   `ship_phoenix` and `ship_goliath` with source HP, speed, cargo, laser,
   generator, and extra-slot values. Legacy contract ids `starter`,
@@ -152,13 +156,13 @@ Implemented mapping rules:
   enumerates every default snapshot row that still comes from local legacy
   content instead of Kalaazu source rows. The bridge is an explicit per-row
   allowlist, not a broad type-level exemption. Current temporary bridge
-  categories are legacy item rows needed by special-item compatibility, craft
-  recipes, production buildings, quest templates/rewards, production rules, and
-  combat rules. Map shells, portals, NPC templates, spawn areas, enemy pools,
-  NPC drop profiles, aggro profiles, leash profiles, ship rows, shop products,
-  loot tables, starter config, scanner config, route policy, projected starter
-  laser/shield/utility module rows, their item rows, and projected material
-  item rows must remain fully Kalaazu-derived.
+  categories are craft recipes, production buildings, quest templates/rewards,
+  production rules, and combat rules. Map shells, portals, NPC templates, spawn
+  areas, enemy pools, NPC drop profiles, aggro profiles, leash profiles, ship
+  rows, shop products, loot tables, starter config, scanner config, route
+  policy, projected starter laser/shield/utility module rows, their item rows,
+  projected material item rows, and special/default item contract rows must
+  remain fully Kalaazu-derived.
 
 This belongs to Phase 7 of:
 

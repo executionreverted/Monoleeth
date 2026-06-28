@@ -19,7 +19,7 @@ func TestBuildStarterItemRowsMapsKalaazuItems(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildStarterItemRows() error = %v, want nil", err)
 	}
-	if got, want := len(rows), len(dumpRows)+16; got != want {
+	if got, want := len(rows), len(dumpRows)+23; got != want {
 		t.Fatalf("item rows = %d, want dump row count plus compatibility rows %d", got, want)
 	}
 
@@ -78,6 +78,25 @@ func TestBuildStarterItemRowsMapsKalaazuItems(t *testing.T) {
 		}
 		if err := economy.ValidateDroppableTradeFlags(definition.TradeFlags); err != nil {
 			t.Fatalf("compatibility item %s drop flags = %v, want loot material", want.contentID, definition.TradeFlags)
+		}
+	}
+	for _, want := range []struct {
+		contentID content.ContentID
+		name      string
+		itemType  economy.ItemType
+		maxStack  int64
+	}{
+		{contentID: "laser_lens", name: "Laser Lens", itemType: economy.ItemTypeStackable, maxStack: 999},
+		{contentID: "energy_cell", name: "Energy Cell", itemType: economy.ItemTypeStackable, maxStack: 999},
+		{contentID: "scanner_circuit", name: "Scanner Circuit", itemType: economy.ItemTypeStackable, maxStack: 999},
+		{contentID: "warp_coil", name: "Warp Coil", itemType: economy.ItemTypeStackable, maxStack: 999},
+		{contentID: "helium_dust", name: "Helium Dust", itemType: economy.ItemTypeStackable, maxStack: 999},
+		{contentID: "planet_coordinate_scroll", name: "Planet Coordinate Scroll", itemType: economy.ItemTypeInstance, maxStack: 1},
+		{contentID: "x_core", name: "X Core", itemType: economy.ItemTypeStackable, maxStack: 99},
+	} {
+		definition := requireItemDefinitionForTest(t, rows, want.contentID)
+		if definition.Name != want.name || definition.Type != want.itemType || definition.MaxStack.Int64() != want.maxStack {
+			t.Fatalf("default projection item %s = %+v, want %s/%s/%d", want.contentID, definition, want.name, want.itemType, want.maxStack)
 		}
 	}
 }

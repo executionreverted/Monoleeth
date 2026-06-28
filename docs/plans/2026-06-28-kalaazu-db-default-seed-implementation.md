@@ -77,6 +77,11 @@ Completed and committed:
 - Task 8 bridge reduction slice: `route_policy` is now emitted by the Kalaazu
   default row builder and routeable resources reference the Kalaazu-projected
   `refined_alloy` item.
+- Task 8 bridge reduction slice: remaining local item contract ids
+  (`laser_lens`, `energy_cell`, `scanner_circuit`, `warp_coil`,
+  `helium_dust`, `planet_coordinate_scroll`, and `x_core`) are now emitted by
+  the Kalaazu default row builder as explicit Kalaazu/default projections, so
+  the bridge report fails if any item row regresses to local/static ownership.
 
 Remaining before this plan is complete:
 

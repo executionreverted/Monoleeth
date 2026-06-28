@@ -34,7 +34,7 @@ func mapStarterItemRows(itemRows []DumpRow) ([]content.SnapshotRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows := make([]content.SnapshotRow, 0, len(sources)+16)
+	rows := make([]content.SnapshotRow, 0, len(sources)+23)
 	for _, source := range sources {
 		definition, err := itemDefinitionWithID(source.Source, source.ItemID)
 		if err != nil {
@@ -51,6 +51,11 @@ func mapStarterItemRows(itemRows []DumpRow) ([]content.SnapshotRow, error) {
 		return nil, err
 	}
 	rows = append(rows, compatibilityRows...)
+	defaultRows, err := defaultProjectionItemRows(sources)
+	if err != nil {
+		return nil, err
+	}
+	rows = append(rows, defaultRows...)
 	return rows, nil
 }
 
@@ -181,6 +186,145 @@ func materialItemDefinitionWithID(source kalaazuItemSource, itemID foundation.It
 		return economy.ItemDefinition{}, err
 	}
 	return definition, nil
+}
+
+func defaultProjectionItemRows(sources []mappedKalaazuItemSource) ([]content.SnapshotRow, error) {
+	byItemID := make(map[foundation.ItemID]kalaazuItemSource, len(sources))
+	for _, source := range sources {
+		byItemID[source.ItemID] = source.Source
+	}
+	projections := []struct {
+		sourceID foundation.ItemID
+		targetID foundation.ItemID
+		name     string
+		itemType economy.ItemType
+		rarity   economy.ItemRarity
+		maxStack int64
+		flags    []economy.TradeFlag
+		bind     []economy.BindRule
+	}{
+		{
+			sourceID: "equipment_weapon_laser_lf_1",
+			targetID: "laser_lens",
+			name:     "Laser Lens",
+			itemType: economy.ItemTypeStackable,
+			rarity:   economy.ItemRarityCommon,
+			maxStack: 999,
+			flags:    []economy.TradeFlag{economy.TradeFlagDroppable, economy.TradeFlagMarketTradeable},
+			bind:     []economy.BindRule{economy.BindRuleNone},
+		},
+		{
+			sourceID: "ammunition_laser_lcb_10",
+			targetID: "energy_cell",
+			name:     "Energy Cell",
+			itemType: economy.ItemTypeStackable,
+			rarity:   economy.ItemRarityCommon,
+			maxStack: 999,
+			flags:    []economy.TradeFlag{economy.TradeFlagDroppable, economy.TradeFlagMarketTradeable},
+			bind:     []economy.BindRule{economy.BindRuleNone},
+		},
+		{
+			sourceID: "equipment_petgear_g_rl1",
+			targetID: "scanner_circuit",
+			name:     "Scanner Circuit",
+			itemType: economy.ItemTypeStackable,
+			rarity:   economy.ItemRarityCommon,
+			maxStack: 999,
+			flags:    []economy.TradeFlag{economy.TradeFlagDroppable, economy.TradeFlagMarketTradeable},
+			bind:     []economy.BindRule{economy.BindRuleNone},
+		},
+		{
+			sourceID: "voucher_jump_vouhcer",
+			targetID: "warp_coil",
+			name:     "Warp Coil",
+			itemType: economy.ItemTypeStackable,
+			rarity:   economy.ItemRarityCommon,
+			maxStack: 999,
+			flags:    []economy.TradeFlag{economy.TradeFlagDroppable, economy.TradeFlagMarketTradeable},
+			bind:     []economy.BindRule{economy.BindRuleNone},
+		},
+		{
+			sourceID: "resource_ore_palladium",
+			targetID: "helium_dust",
+			name:     "Helium Dust",
+			itemType: economy.ItemTypeStackable,
+			rarity:   economy.ItemRarityUncommon,
+			maxStack: 999,
+			flags:    []economy.TradeFlag{economy.TradeFlagDroppable, economy.TradeFlagMarketTradeable},
+			bind:     []economy.BindRule{economy.BindRuleNone},
+		},
+		{
+			sourceID: "voucher_jump_vouhcer",
+			targetID: "planet_coordinate_scroll",
+			name:     "Planet Coordinate Scroll",
+			itemType: economy.ItemTypeInstance,
+			rarity:   economy.ItemRarityRare,
+			maxStack: 1,
+			flags:    []economy.TradeFlag{economy.TradeFlagTradeable, economy.TradeFlagMarketTradeable},
+			bind:     []economy.BindRule{economy.BindRuleNone},
+		},
+		{
+			sourceID: "deal_extra_energy",
+			targetID: "x_core",
+			name:     "X Core",
+			itemType: economy.ItemTypeStackable,
+			rarity:   economy.ItemRarityRare,
+			maxStack: 99,
+			flags:    []economy.TradeFlag{economy.TradeFlagTradeable},
+			bind:     []economy.BindRule{economy.BindRuleNone},
+		},
+	}
+	rows := make([]content.SnapshotRow, 0, len(projections))
+	for _, projection := range projections {
+		source, ok := byItemID[projection.sourceID]
+		if !ok {
+			return nil, fmt.Errorf("default item projection source %q missing", projection.sourceID)
+		}
+		definition, err := defaultProjectionItemDefinitionWithID(source, projection.targetID, projection.name, projection.itemType, projection.rarity, projection.maxStack, projection.flags, projection.bind)
+		if err != nil {
+			return nil, err
+		}
+		row, err := snapshotRow(definition.ItemID.String(), definition)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func defaultProjectionItemDefinitionWithID(source kalaazuItemSource, itemID foundation.ItemID, name string, itemType economy.ItemType, rarity economy.ItemRarity, maxStack int64, flags []economy.TradeFlag, bind []economy.BindRule) (economy.ItemDefinition, error) {
+	sourceRow, err := catalog.NewVersionedDefinitionFromStrings(itemID.String(), kalaazuItemCatalogVersion.String())
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	maxStackQuantity, err := foundation.NewQuantity(maxStack)
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	weightUnits := int64(defaultItemWeight)
+	if itemType == economy.ItemTypeInstance {
+		weightUnits = 1
+	}
+	weightQuantity, err := foundation.NewQuantity(weightUnits)
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	if name == "" {
+		name = source.Name
+	}
+	return economy.NewItemDefinition(
+		sourceRow,
+		itemID,
+		name,
+		itemType,
+		rarity,
+		maxStackQuantity,
+		weightQuantity,
+		flags,
+		bind,
+		nil,
+	)
 }
 
 func starterCompatibilityItemRows(sources []mappedKalaazuItemSource) ([]content.SnapshotRow, error) {

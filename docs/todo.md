@@ -110,12 +110,12 @@ for phase status; this file is a compact pending-work index.
   projected scanner/radar/cargo utility compatibility modules and item rows,
   projected material item aliases, fully Kalaazu-derived buyable shop rows,
   Kalaazu-resource loot tables, a Kalaazu-owned starter config, Kalaazu-owned
-  scanner config, and Kalaazu-owned route policy, with
+  scanner config, Kalaazu-owned route policy, and Kalaazu/default-owned special
+  item contract rows, with
   source/imported/unsupported counts recorded by the import report. Legacy
   static catalog rows still bridge systems Kalaazu does not define yet: XP,
-  special item support, recipes, production buildings, quests, production
-  rules, and combat rules. Kalaazu speed-generator items now map into module
-  speed stats. Next
+  recipes, production buildings, quests, production rules, and combat rules.
+  Kalaazu speed-generator items now map into module speed stats. Next
   work: remove or explicitly replace those remaining static bridge rows, expand
   draft / publish / rollback tooling, and build the admin CMS UI for monsters,
   drop tables, item stats, recipes, map pools, and planet/scanner tuning. Root
@@ -1209,11 +1209,12 @@ Task 001 release proof must be rebuilt through
 - [ ] Replace remaining explicit Kalaazu default-seed legacy bridge rows.
   `contentseed.DefaultSnapshotLegacyBridgeReport` now makes every non-Kalaazu
   default snapshot row explicit and tested through a per-row allowlist, but
-  special item compatibility rows, crafting, production, quests, production
-  rules, and combat rules still need domain-owned Kalaazu/default replacements.
+  crafting, production, quests, production rules, and combat rules still need
+  domain-owned Kalaazu/default replacements.
   Ship rows, shop products, loot tables, starter config, scanner config, route
   policy, starter laser/shield/utility module rows, their item rows, and
-  material item aliases are now produced by the Kalaazu default seed builder.
+  material/special item aliases are now produced by the Kalaazu default seed
+  builder.
   Source:
   `internal/game/contentseed/snapshot_bridge.go`.
 - [x] Wire realtime gateway request handling to authenticated session and

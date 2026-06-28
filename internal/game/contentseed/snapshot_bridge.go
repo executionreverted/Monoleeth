@@ -86,15 +86,6 @@ func kalaazuDefaultRowIDs(rows kalaazu.DefaultRows) map[content.ContentType]map[
 }
 
 var explicitLegacyBridgeReasons = map[content.ContentType]map[content.ContentID]string{
-	content.ContentTypeItem: {
-		"energy_cell":              "Local crafting material retained until a matching Kalaazu/default craft material row is designed.",
-		"helium_dust":              "Local quest/progression material retained until a matching Kalaazu/default material row is designed.",
-		"laser_lens":               "Local crafting material retained until a matching Kalaazu/default craft material row is designed.",
-		"planet_coordinate_scroll": "Local special item retained until coordinate-item content has a Kalaazu/default source row.",
-		"scanner_circuit":          "Local crafting material retained until a matching Kalaazu/default craft material row is designed.",
-		"warp_coil":                "Local crafting material retained until a matching Kalaazu/default craft material row is designed.",
-		"x_core":                   "Local planet-claim/premium special item retained until X Core content has a Kalaazu/default source row.",
-	},
 	content.ContentTypeCraftRecipe: {
 		"laser_alpha_t1":      "Local crafting recipe bridge; selected Kalaazu dumps do not include craft recipe rows.",
 		"refined_alloy_batch": "Local crafting recipe bridge; selected Kalaazu dumps do not include craft recipe rows.",

@@ -50,6 +50,7 @@ func TestDefaultSnapshotLegacyBridgeReportCoversEveryNonKalaazuRow(t *testing.T)
 		switch row.ContentType {
 		case content.ContentTypeMap,
 			content.ContentTypeMapPortal,
+			content.ContentTypeItem,
 			content.ContentTypeModule,
 			content.ContentTypeShopProduct,
 			content.ContentTypeShip,
@@ -182,6 +183,26 @@ func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeProjectedMaterialItems(t 
 	} {
 		if legacyBridgeReportHasRow(report, content.ContentTypeItem, contentID) {
 			t.Fatalf("bridge report contains item/%s, want Kalaazu material projection", contentID)
+		}
+	}
+}
+
+func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeDefaultProjectedItems(t *testing.T) {
+	report, err := DefaultSnapshotLegacyBridgeReport(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("DefaultSnapshotLegacyBridgeReport() error = %v, want nil", err)
+	}
+	for _, contentID := range []content.ContentID{
+		"laser_lens",
+		"energy_cell",
+		"scanner_circuit",
+		"warp_coil",
+		"helium_dust",
+		"planet_coordinate_scroll",
+		"x_core",
+	} {
+		if legacyBridgeReportHasRow(report, content.ContentTypeItem, contentID) {
+			t.Fatalf("bridge report contains item/%s, want Kalaazu/default item projection", contentID)
 		}
 	}
 }
