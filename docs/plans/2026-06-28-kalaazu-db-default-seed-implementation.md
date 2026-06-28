@@ -57,6 +57,10 @@ Completed and committed:
 - Task 8 bridge reduction slice: starter module item ids `laser_alpha_t1` and
   `shield_generator_t1` are now projected from Kalaazu LF-1 and SG3N-A01 item
   rows as instance items.
+- Task 8 bridge reduction slice: legacy material ids used by current
+  recipes/quests (`prometium`, `raw_ore`, `endurium`, `iron_ore`, `terbium`,
+  `prometid`, `refined_alloy`, `duranium`, `xenomit`, `carbon_shards`, and
+  `promerium`) are now projected from Kalaazu resource rows.
 
 Remaining before this plan is complete:
 

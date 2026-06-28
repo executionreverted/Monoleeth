@@ -107,12 +107,13 @@ for phase status; this file is a compact pending-work index.
   default snapshot for starter maps, portals, NPC density, item definitions,
   ship definitions plus legacy ship compatibility ids, supported laser/shield
   modules, projected starter laser/shield compatibility modules and item rows,
-  fully Kalaazu-derived buyable shop rows, and Kalaazu-resource loot tables,
-  with source/imported/unsupported counts recorded by the import report. Legacy
-  static catalog rows still bridge systems Kalaazu does not define yet: XP,
-  cargo-only ore resources, recipes, production buildings, quests, scanner
-  config, starter config, route policy, production rules, and combat rules.
-  Kalaazu speed-generator items now map into module speed stats. Next
+  projected material item aliases, fully Kalaazu-derived buyable shop rows, and
+  Kalaazu-resource loot tables, with source/imported/unsupported counts
+  recorded by the import report. Legacy static catalog rows still bridge
+  systems Kalaazu does not define yet: XP, scanner/cargo/special item support,
+  recipes, production buildings, quests, scanner config, starter config, route
+  policy, production rules, and combat rules. Kalaazu speed-generator items now
+  map into module speed stats. Next
   work: remove or explicitly replace those remaining static bridge rows, expand
   draft / publish / rollback tooling, and build the admin CMS UI for monsters,
   drop tables, item stats, recipes, map pools, and planet/scanner tuning. Root
@@ -1205,12 +1206,12 @@ Task 001 release proof must be rebuilt through
   `client/tests/e2e/phase11-darkorbit-feel-flow.mjs`.
 - [ ] Replace remaining explicit Kalaazu default-seed legacy bridge rows.
   `contentseed.DefaultSnapshotLegacyBridgeReport` now makes every non-Kalaazu
-  default snapshot row explicit and tested, but scanner/cargo item/module
-  compatibility rows, crafting, production, quests, scanner config, starter
-  config, route policy, production rules, and combat rules still need
+  default snapshot row explicit and tested, but scanner/cargo/special
+  item/module compatibility rows, crafting, production, quests, scanner config,
+  starter config, route policy, production rules, and combat rules still need
   domain-owned Kalaazu/default replacements. Ship rows, shop products, loot
-  tables, starter laser/shield module rows, and their item rows are now
-  produced by the Kalaazu default seed builder. Source:
+  tables, starter laser/shield module rows, their item rows, and material item
+  aliases are now produced by the Kalaazu default seed builder. Source:
   `internal/game/contentseed/snapshot_bridge.go`.
 - [x] Wire realtime gateway request handling to authenticated session and
   server-side player resolution. `realtime.Gateway` now decodes request

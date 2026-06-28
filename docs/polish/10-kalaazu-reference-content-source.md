@@ -112,7 +112,10 @@ Implemented mapping rules:
   values are made unique with a source-id suffix instead of being silently
   dropped. Starter module item ids `laser_alpha_t1` and
   `shield_generator_t1` are projected from Kalaazu LF-1 and SG3N-A01 item rows
-  as instance items so starter grants use DB-seeded item definitions.
+  as instance items so starter grants use DB-seeded item definitions. Current
+  recipe/quest material ids are projected from Kalaazu resource rows so legacy
+  IDs like `raw_ore`, `iron_ore`, and `refined_alloy` remain stable while their
+  item definitions come from the default seed builder.
 - Ships: `ships.items_id` joins through `items.id`, producing ship rows such as
   `ship_phoenix` and `ship_goliath` with source HP, speed, cargo, laser,
   generator, and extra-slot values. Legacy contract ids `starter`,
@@ -137,13 +140,13 @@ Implemented mapping rules:
 - Static bridge posture: `contentseed.DefaultSnapshotLegacyBridgeReport`
   enumerates every default snapshot row that still comes from local legacy
   content instead of Kalaazu source rows. Current temporary bridge categories
-  are legacy item/module rows needed by scanner/cargo compatibility, craft
-  recipes, production buildings, quest templates/rewards, scanner config,
-  starter config, route policy, production rules, and combat rules. Map shells,
-  portals, NPC templates, spawn areas, enemy pools, NPC drop profiles, aggro
-  profiles, leash profiles, ship rows, shop products, loot tables, projected
-  starter laser/shield module rows, and their item rows must remain fully
-  Kalaazu-derived.
+  are legacy item/module rows needed by scanner/cargo/special-item
+  compatibility, craft recipes, production buildings, quest templates/rewards,
+  scanner config, starter config, route policy, production rules, and combat
+  rules. Map shells, portals, NPC templates, spawn areas, enemy pools, NPC drop
+  profiles, aggro profiles, leash profiles, ship rows, shop products, loot
+  tables, projected starter laser/shield module rows, their item rows, and
+  projected material item rows must remain fully Kalaazu-derived.
 
 This belongs to Phase 7 of:
 

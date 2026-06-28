@@ -34,7 +34,7 @@ func mapStarterItemRows(itemRows []DumpRow) ([]content.SnapshotRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows := make([]content.SnapshotRow, 0, len(sources)+2)
+	rows := make([]content.SnapshotRow, 0, len(sources)+13)
 	for _, source := range sources {
 		definition, err := itemDefinitionWithID(source.Source, source.ItemID)
 		if err != nil {
@@ -152,6 +152,37 @@ func moduleItemDefinitionWithID(source kalaazuItemSource, itemID foundation.Item
 	return definition, nil
 }
 
+func materialItemDefinitionWithID(source kalaazuItemSource, itemID foundation.ItemID) (economy.ItemDefinition, error) {
+	sourceRow, err := catalog.NewVersionedDefinitionFromStrings(itemID.String(), kalaazuItemCatalogVersion.String())
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	maxStackQuantity, err := foundation.NewQuantity(defaultStackMax)
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	weightQuantity, err := foundation.NewQuantity(defaultItemWeight)
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	definition, err := economy.NewItemDefinition(
+		sourceRow,
+		itemID,
+		source.Name,
+		economy.ItemTypeStackable,
+		itemRarity(source),
+		maxStackQuantity,
+		weightQuantity,
+		[]economy.TradeFlag{economy.TradeFlagDroppable, economy.TradeFlagMarketTradeable},
+		[]economy.BindRule{economy.BindRuleNone},
+		nil,
+	)
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	return definition, nil
+}
+
 func starterCompatibilityItemRows(sources []mappedKalaazuItemSource) ([]content.SnapshotRow, error) {
 	byItemID := make(map[foundation.ItemID]kalaazuItemSource, len(sources))
 	for _, source := range sources {
@@ -163,6 +194,17 @@ func starterCompatibilityItemRows(sources []mappedKalaazuItemSource) ([]content.
 	}{
 		{sourceID: "equipment_weapon_laser_lf_1", targetID: "laser_alpha_t1"},
 		{sourceID: "equipment_generator_shield_sg3n_a01", targetID: "shield_generator_t1"},
+		{sourceID: "resource_ore_prometium", targetID: "prometium"},
+		{sourceID: "resource_ore_prometium", targetID: "raw_ore"},
+		{sourceID: "resource_ore_endurium", targetID: "endurium"},
+		{sourceID: "resource_ore_endurium", targetID: "iron_ore"},
+		{sourceID: "resource_ore_terbium", targetID: "terbium"},
+		{sourceID: "resource_ore_prometid", targetID: "prometid"},
+		{sourceID: "resource_ore_prometid", targetID: "refined_alloy"},
+		{sourceID: "resource_ore_duranium", targetID: "duranium"},
+		{sourceID: "resource_ore_xenomit", targetID: "xenomit"},
+		{sourceID: "resource_ore_xenomit", targetID: "carbon_shards"},
+		{sourceID: "resource_ore_promerium", targetID: "promerium"},
 	}
 	rows := make([]content.SnapshotRow, 0, len(compatibility))
 	for _, projection := range compatibility {
@@ -170,7 +212,13 @@ func starterCompatibilityItemRows(sources []mappedKalaazuItemSource) ([]content.
 		if !ok {
 			return nil, fmt.Errorf("starter compatibility item source %q missing", projection.sourceID)
 		}
-		definition, err := moduleItemDefinitionWithID(source, projection.targetID)
+		definition, err := itemDefinitionWithID(source, projection.targetID)
+		switch source.Type {
+		case 14, 15, 16:
+			definition, err = moduleItemDefinitionWithID(source, projection.targetID)
+		case 26:
+			definition, err = materialItemDefinitionWithID(source, projection.targetID)
+		}
 		if err != nil {
 			return nil, err
 		}

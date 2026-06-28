@@ -19,7 +19,7 @@ func TestBuildStarterItemRowsMapsKalaazuItems(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildStarterItemRows() error = %v, want nil", err)
 	}
-	if got, want := len(rows), len(dumpRows)+2; got != want {
+	if got, want := len(rows), len(dumpRows)+13; got != want {
 		t.Fatalf("item rows = %d, want dump row count plus compatibility rows %d", got, want)
 	}
 
@@ -39,6 +39,33 @@ func TestBuildStarterItemRowsMapsKalaazuItems(t *testing.T) {
 	starterShield := requireItemDefinitionForTest(t, rows, "shield_generator_t1")
 	if starterShield.Name != "SG3N-A01" || starterShield.Type != economy.ItemTypeInstance || starterShield.MaxStack.Int64() != 1 {
 		t.Fatalf("starter shield item = %+v, want Kalaazu SG3N-A01 instance item projected onto starter contract", starterShield)
+	}
+	for _, want := range []struct {
+		contentID content.ContentID
+		name      string
+	}{
+		{contentID: "prometium", name: "Prometium"},
+		{contentID: "raw_ore", name: "Prometium"},
+		{contentID: "endurium", name: "Endurium"},
+		{contentID: "iron_ore", name: "Endurium"},
+		{contentID: "terbium", name: "Terbium"},
+		{contentID: "prometid", name: "Prometid"},
+		{contentID: "refined_alloy", name: "Prometid"},
+		{contentID: "duranium", name: "Duranium"},
+		{contentID: "xenomit", name: "Xenomit"},
+		{contentID: "carbon_shards", name: "Xenomit"},
+		{contentID: "promerium", name: "Promerium"},
+	} {
+		definition := requireItemDefinitionForTest(t, rows, want.contentID)
+		if definition.Name != want.name || definition.Type != economy.ItemTypeStackable {
+			t.Fatalf("compatibility item %s = %+v, want Kalaazu %s stackable projection", want.contentID, definition, want.name)
+		}
+		if err := economy.ValidateMarketListingTradeFlags(definition.TradeFlags); err != nil {
+			t.Fatalf("compatibility item %s market flags = %v, want routeable material", want.contentID, definition.TradeFlags)
+		}
+		if err := economy.ValidateDroppableTradeFlags(definition.TradeFlags); err != nil {
+			t.Fatalf("compatibility item %s drop flags = %v, want loot material", want.contentID, definition.TradeFlags)
+		}
 	}
 }
 

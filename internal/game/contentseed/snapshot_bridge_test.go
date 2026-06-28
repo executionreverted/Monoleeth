@@ -119,6 +119,30 @@ func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeProjectedStarterModuleIte
 	}
 }
 
+func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeProjectedMaterialItems(t *testing.T) {
+	report, err := DefaultSnapshotLegacyBridgeReport(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("DefaultSnapshotLegacyBridgeReport() error = %v, want nil", err)
+	}
+	for _, contentID := range []content.ContentID{
+		"prometium",
+		"raw_ore",
+		"endurium",
+		"iron_ore",
+		"terbium",
+		"prometid",
+		"refined_alloy",
+		"duranium",
+		"xenomit",
+		"carbon_shards",
+		"promerium",
+	} {
+		if legacyBridgeReportHasRow(report, content.ContentTypeItem, contentID) {
+			t.Fatalf("bridge report contains item/%s, want Kalaazu material projection", contentID)
+		}
+	}
+}
+
 func legacyBridgeReportHasRow(report []LegacyBridgeRow, contentType content.ContentType, contentID content.ContentID) bool {
 	for _, row := range report {
 		if row.ContentType == contentType && row.ContentID == contentID {
