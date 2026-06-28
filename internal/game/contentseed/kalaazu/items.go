@@ -200,6 +200,10 @@ func moduleDefinition(source mappedKalaazuItemSource) (modules.ModuleDefinition,
 		category = modules.ModuleCategoryDefensive
 		slotType = modules.ModuleSlotTypeDefensive
 		statModifiers = []modules.StatModifier{{Stat: modules.StatShieldMax, Kind: modules.StatModifierFlat, Value: int64(shieldValue(source.Source))}}
+	case 15:
+		category = modules.ModuleCategoryDefensive
+		slotType = modules.ModuleSlotTypeDefensive
+		statModifiers = []modules.StatModifier{{Stat: modules.StatSpeed, Kind: modules.StatModifierFlat, Value: int64(maxInt(1, source.Source.Bonus))}}
 	default:
 		return modules.ModuleDefinition{}, false, nil
 	}
@@ -360,7 +364,7 @@ func shopCategoryForModule(source kalaazuItemSource) string {
 	switch source.Type {
 	case 16:
 		return content.ShopCategoryWeapons
-	case 14:
+	case 14, 15:
 		return content.ShopCategoryShieldGenerators
 	default:
 		return content.ShopCategoryExtrasModules

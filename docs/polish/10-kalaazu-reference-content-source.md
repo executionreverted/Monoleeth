@@ -113,8 +113,8 @@ Implemented mapping rules:
   `ship_phoenix` and `ship_goliath` with source HP, speed, cargo, laser,
   generator, and extra-slot values.
 - Modules: laser rows become offensive modules with `weapon_damage`; shield
-  generator rows become defensive modules with `shield_max`. Speed generators
-  remain unsupported until the module/content schema can express speed stats.
+  generator rows become defensive modules with `shield_max`; speed generator
+  rows become defensive generator modules with `speed`.
 - Shop: buyable Kalaazu rows become shop products and are classified as ship,
   module, or item products based on the rows imported above.
 

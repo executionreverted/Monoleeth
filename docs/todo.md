@@ -110,12 +110,12 @@ for phase status; this file is a compact pending-work index.
   static catalog rows still bridge systems Kalaazu does not define yet: XP,
   loot tables, cargo-only ore resources, recipes, production buildings, quests,
   scanner config, starter config, route policy, production rules, and combat
-  rules. Next work: remove or explicitly replace those remaining static bridge
-  rows, add speed-generator/module-stat support for Kalaazu generator items,
-  expand draft / publish / rollback tooling, and build the admin CMS UI for
-  monsters, drop tables, item stats, recipes, map pools, and planet/scanner
-  tuning. Root browser demo runtime mode has been removed, so CMS UI smoke must
-  use real authenticated server/admin state.
+  rules. Kalaazu speed-generator items now map into module speed stats. Next
+  work: remove or explicitly replace those remaining static bridge rows, expand
+  draft / publish / rollback tooling, and build the admin CMS UI for monsters,
+  drop tables, item stats, recipes, map pools, and planet/scanner tuning. Root
+  browser demo runtime mode has been removed, so CMS UI smoke must use real
+  authenticated server/admin state.
   Source: `docs/plans/2026-06-24-content-foundation-design.md`.
 - [ ] Tune the first real world sprite set into the final 2D/3D art pass. The
   current renderer now loads concrete assets under `client/src/assets/world/`

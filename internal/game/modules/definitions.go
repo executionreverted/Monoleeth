@@ -87,6 +87,7 @@ const (
 	StatWeaponDamage          StatKey = "weapon_damage"
 	StatWeaponRange           StatKey = "weapon_range"
 	StatAccuracy              StatKey = "accuracy"
+	StatSpeed                 StatKey = "speed"
 	StatShieldMax             StatKey = "shield_max"
 	StatShieldRegen           StatKey = "shield_regen"
 	StatScanPower             StatKey = "scan_power"

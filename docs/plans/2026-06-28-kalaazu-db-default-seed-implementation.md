@@ -33,9 +33,8 @@ Remaining before this plan is complete:
   remaining base row as a temporary bridge.
 - Run Task 10 full verification, including `go test ./...`, client check, and
   `git diff --check`.
-- Add module/stat support for Kalaazu speed generator rows before claiming full
-  equipment parity; they are currently counted as unsupported in the import
-  report because the module schema has no speed stat field.
+- Speed generator rows are now mapped through `modules.StatSpeed`; remaining
+  unsupported equipment rows are still counted in the import report.
 
 ---
 

@@ -34,13 +34,13 @@ func TestBuildStarterItemRowsMapsKalaazuItems(t *testing.T) {
 	}
 }
 
-func TestBuildStarterModuleRowsMapsKalaazuLasersAndShields(t *testing.T) {
+func TestBuildStarterModuleRowsMapsKalaazuLasersShieldsAndSpeedGenerators(t *testing.T) {
 	rows, err := BuildStarterModuleRows(DefaultSeedFS())
 	if err != nil {
 		t.Fatalf("BuildStarterModuleRows() error = %v, want nil", err)
 	}
-	if got, want := len(rows), 10; got != want {
-		t.Fatalf("module rows = %d, want %d laser/shield rows", got, want)
+	if got, want := len(rows), 16; got != want {
+		t.Fatalf("module rows = %d, want %d laser/shield/speed rows", got, want)
 	}
 
 	lf1 := requireModuleDefinitionForTest(t, rows, "equipment_weapon_laser_lf_1")
@@ -50,6 +50,10 @@ func TestBuildStarterModuleRowsMapsKalaazuLasersAndShields(t *testing.T) {
 	sg3n := requireModuleDefinitionForTest(t, rows, "equipment_generator_shield_sg3n_a01")
 	if sg3n.SlotType != "defensive" || sg3n.StatModifiers[0].Stat != "shield_max" || sg3n.StatModifiers[0].Value != 1000 {
 		t.Fatalf("sg3n module = %+v, want Kalaazu shield module", sg3n)
+	}
+	g3n := requireModuleDefinitionForTest(t, rows, "equipment_generator_speed_g3n_7900")
+	if g3n.SlotType != "defensive" || g3n.StatModifiers[0].Stat != modules.StatSpeed || g3n.StatModifiers[0].Value != 10 {
+		t.Fatalf("g3n module = %+v, want Kalaazu speed module", g3n)
 	}
 }
 
