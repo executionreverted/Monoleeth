@@ -409,29 +409,58 @@ func TestConsumeScanCompletedProgressesMatchingScanQuestIdempotently(t *testing.
 	assertStoredQuestProgress(t, fixture, secondPlayer.PlayerID, secondQuest.PlayerQuestID, QuestStateCompleted, 1, true)
 }
 
+func TestConsumeBuildingCompletedProgressesOnlyMatchingBuildQuest(t *testing.T) {
+	fixture := newConsumerQuestFixture(t,
+		consumerTemplate("quest_build_extractor_consumer", QuestTypeBuild, buildObjective("build_extractor", "iron_extractor", 1)),
+		consumerTemplate("quest_build_foundry_consumer", QuestTypeBuild, buildObjective("build_foundry", "alloy_foundry", 1)),
+	)
+	player := validBoardGenerationInput(t, fixture.catalog).Player
+	extractorQuest := acceptConsumerQuest(t, fixture, player, "quest_build_extractor_consumer", "build_extractor")
+	foundryQuest := acceptConsumerQuest(t, fixture, player, "quest_build_foundry_consumer", "build_foundry")
+
+	fixture.clock.Advance(time.Minute)
+	updated, err := fixture.service.ConsumeBuildingCompleted(BuildingCompletedInput{
+		EventID:          "event_build_iron_extractor_1",
+		ProgressEventKey: "building.completed:planet_building_build:planet-1:iron-extractor",
+		PlayerID:         player.PlayerID,
+		BuildingType:     "iron_extractor",
+	})
+	if err != nil {
+		t.Fatalf("ConsumeBuildingCompleted() = %v, want nil", err)
+	}
+	if len(updated) != 1 || updated[0].PlayerQuestID != extractorQuest.PlayerQuestID {
+		t.Fatalf("updated quests = %#v, want only %q", updated, extractorQuest.PlayerQuestID)
+	}
+	assertStoredQuestProgress(t, fixture, player.PlayerID, extractorQuest.PlayerQuestID, QuestStateCompleted, 1, true)
+	assertStoredQuestProgress(t, fixture, player.PlayerID, foundryQuest.PlayerQuestID, QuestStateAccepted, 0, false)
+
+	fixture.clock.Advance(time.Minute)
+	duplicate, err := fixture.service.ConsumeBuildingCompleted(BuildingCompletedInput{
+		EventID:          "event_build_iron_extractor_retry",
+		ProgressEventKey: "building.completed:planet_building_build:planet-1:iron-extractor",
+		PlayerID:         player.PlayerID,
+		BuildingType:     "iron_extractor",
+	})
+	if err != nil {
+		t.Fatalf("ConsumeBuildingCompleted(duplicate) = %v, want nil", err)
+	}
+	if len(duplicate) != 0 {
+		t.Fatalf("duplicate updated quests len = %d, want 0", len(duplicate))
+	}
+	assertStoredQuestProgress(t, fixture, player.PlayerID, extractorQuest.PlayerQuestID, QuestStateCompleted, 1, true)
+}
+
 func TestSkeletonConsumersValidateAndNoopSafely(t *testing.T) {
 	fixture := newConsumerQuestFixture(t,
-		consumerTemplate("quest_build_consumer", QuestTypeBuild, buildObjective("build_extractor", "extractor_t1", 1)),
 		consumerTemplate("quest_deliver_consumer", QuestTypeDeliver, deliverObjective("deliver_iron", "iron_ore", 5, DeliveryTargetStation, "station_frontier")),
 	)
 	player := validBoardGenerationInput(t, fixture.catalog).Player
-	buildQuest := acceptConsumerQuest(t, fixture, player, "quest_build_consumer", "build")
 	deliverQuest := acceptConsumerQuest(t, fixture, player, "quest_deliver_consumer", "deliver")
 
 	validConsumers := []struct {
 		name    string
 		consume func() ([]PlayerQuest, error)
 	}{
-		{
-			name: "build",
-			consume: func() ([]PlayerQuest, error) {
-				return fixture.service.ConsumeBuildingCompleted(BuildingCompletedInput{
-					EventID:      "event_build_1",
-					PlayerID:     player.PlayerID,
-					BuildingType: "extractor_t1",
-				})
-			},
-		},
 		{
 			name: "deliver",
 			consume: func() ([]PlayerQuest, error) {
@@ -455,7 +484,6 @@ func TestSkeletonConsumersValidateAndNoopSafely(t *testing.T) {
 			t.Fatalf("%s skeleton updated quests len = %d, want 0", test.name, len(updated))
 		}
 	}
-	assertStoredQuestProgress(t, fixture, player.PlayerID, buildQuest.PlayerQuestID, QuestStateAccepted, 0, false)
 	assertStoredQuestProgress(t, fixture, player.PlayerID, deliverQuest.PlayerQuestID, QuestStateAccepted, 0, false)
 
 	invalidConsumers := []struct {
@@ -498,7 +526,6 @@ func TestSkeletonConsumersValidateAndNoopSafely(t *testing.T) {
 		}
 	}
 
-	assertStoredQuestProgress(t, fixture, player.PlayerID, buildQuest.PlayerQuestID, QuestStateAccepted, 0, false)
 	assertStoredQuestProgress(t, fixture, player.PlayerID, deliverQuest.PlayerQuestID, QuestStateAccepted, 0, false)
 }
 

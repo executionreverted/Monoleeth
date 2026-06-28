@@ -51,13 +51,13 @@ type ScanCompletedInput struct {
 	TargetSignalType string                `json:"target_signal_type"`
 }
 
-// BuildingCompletedInput is the server-owned building skeleton event shape.
-// The consumer validates it but intentionally no-ops until building ownership
-// and completion providers exist.
+// BuildingCompletedInput is the server-owned planet building completion event
+// shape that may progress build objectives.
 type BuildingCompletedInput struct {
-	EventID      foundation.EventID  `json:"event_id"`
-	PlayerID     foundation.PlayerID `json:"player_id"`
-	BuildingType string              `json:"building_type"`
+	EventID          foundation.EventID    `json:"event_id"`
+	ProgressEventKey QuestProgressEventKey `json:"-"`
+	PlayerID         foundation.PlayerID   `json:"player_id"`
+	BuildingType     string                `json:"building_type"`
 }
 
 // DeliveryCompletedInput is the server-owned delivery skeleton event shape.
@@ -148,6 +148,9 @@ func (input ScanCompletedInput) Validate() error {
 // Validate reports whether input names one server building completion event.
 func (input BuildingCompletedInput) Validate() error {
 	if err := validateQuestEventEnvelope(input.EventID, input.PlayerID); err != nil {
+		return err
+	}
+	if err := input.ProgressEventKey.ValidateOptional(); err != nil {
 		return err
 	}
 	if strings.TrimSpace(input.BuildingType) == "" {

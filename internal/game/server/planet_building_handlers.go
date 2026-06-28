@@ -10,6 +10,7 @@ import (
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/production"
+	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
 )
 
@@ -115,7 +116,16 @@ func (runtime *Runtime) handlePlanetBuildingBuild(ctx realtime.CommandContext, r
 	if err := runtime.applyBuildingMutationDurableCommit(result); err != nil {
 		return nil, domainErrorForBuildingMutation(err)
 	}
-	return runtime.planetBuildingMutationResponse(ctx.PlayerID, planetID, result)
+	questUpdates, err := runtime.consumeBuildingQuestProgress(ctx.PlayerID, request.RequestID, result)
+	if err != nil {
+		return nil, domainErrorForQuest(err)
+	}
+	response, err := runtime.planetBuildingMutationResponse(ctx.PlayerID, planetID, result)
+	if err != nil {
+		return nil, err
+	}
+	runtime.queueQuestProgressEvents(authSessionID(ctx.SessionID), questUpdates)
+	return response, nil
 }
 
 func (runtime *Runtime) handlePlanetBuildingUpgrade(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -240,6 +250,25 @@ func (runtime *Runtime) applyBuildingMutationDurableCommit(result production.Bui
 	}
 	_, err = plan.ApplyDurableCommit(runtime.BuildingMutations)
 	return err
+}
+
+func (runtime *Runtime) consumeBuildingQuestProgress(
+	playerID foundation.PlayerID,
+	requestID foundation.RequestID,
+	result production.BuildingMutationResult,
+) ([]quests.PlayerQuest, error) {
+	if result.Operation != production.BuildingMutationBuild {
+		return nil, nil
+	}
+	if result.ReferenceKey.IsZero() {
+		return nil, nil
+	}
+	return runtime.Quest.ConsumeBuildingCompleted(quests.BuildingCompletedInput{
+		EventID:          foundation.EventID("event-building-build-" + requestID.String()),
+		ProgressEventKey: quests.QuestProgressEventKey("building.completed:" + result.ReferenceKey.String()),
+		PlayerID:         playerID,
+		BuildingType:     result.Building.BuildingType.String(),
+	})
 }
 
 func (runtime *Runtime) validateOwnedActiveProductionPlanet(playerID foundation.PlayerID, planetID foundation.PlanetID) error {

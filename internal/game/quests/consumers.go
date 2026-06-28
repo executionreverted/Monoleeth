@@ -77,13 +77,22 @@ func (service *QuestService) ConsumeScanCompleted(input ScanCompletedInput) ([]P
 	})
 }
 
-// ConsumeBuildingCompleted validates the server building event shape and no-ops
-// until authoritative building completion exists.
+// ConsumeBuildingCompleted consumes a validated planet building completion
+// event and progresses matching active build quests for the event player.
 func (service *QuestService) ConsumeBuildingCompleted(input BuildingCompletedInput) ([]PlayerQuest, error) {
 	if err := input.Validate(); err != nil {
 		return nil, err
 	}
-	return nil, nil
+	eventKey := questProgressEventKey(input.EventID, input.ProgressEventKey)
+	return service.consumeProgressEvent(eventKey, input.PlayerID, func(objective Objective) (int64, bool) {
+		if objective.Kind != ObjectiveKindBuild || objective.Build == nil {
+			return 0, false
+		}
+		if objective.Build.BuildingType != input.BuildingType {
+			return 0, false
+		}
+		return 1, true
+	})
 }
 
 // ConsumeDeliveryCompleted validates the server delivery event shape and no-ops

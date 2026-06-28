@@ -14,6 +14,7 @@ import (
 	gameevents "gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/production"
+	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
@@ -117,6 +118,108 @@ func TestPlanetBuildingBuildAlloyFoundryDebitsServerOwnedCostsAndQueuesOwnerEven
 	assertStoredRouteStorageQuantity(t, gameServer, planetID, "iron_ore", 20)
 	assertPlanetBuildingMutationBoundaryCounts(t, gameServer, owner.PlayerID, 1, 1, 2, 2, 4)
 	assertPlanetBuildingDurableCommitCounts(t, gameServer, referenceKey, 1, 2, 1)
+}
+
+func TestPlanetBuildingBuildProgressesAcceptedBuildQuest(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+	gameServer := newRouteControlTestServer(t, clock)
+	owner := createResolvedRuntimeSession(t, gameServer, "planet-building-build-quest-owner@example.com", "Building Quest")
+	planetID := foundation.PlanetID("planet-building-build-quest")
+
+	accepted := seedAcceptedBuildQuestForTest(t, gameServer, owner.PlayerID, "quest_build_extractor_r1", "quest-offer-build-extractor")
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, planetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-building-build-quest")
+	seedPlanetBuildingWalletCredits(t, gameServer, owner.PlayerID, 500, "quest_reward:planet-building-build-quest-seed")
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-planet-building-build-quest","op":"planet.building_build","payload":{"planet_id":"`+planetID.String()+`","building_type":"iron_extractor","slot":"alpha"},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("planet.building_build response error = %+v, want success", response.Error)
+	}
+
+	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationPlanetBuildingBuild, owner.PlayerID)
+	if err != nil {
+		t.Fatalf("post planet.building_build events: %v", err)
+	}
+	ownerEvents := eventsBySession[owner.SessionID]
+	progressed := requireEventTypeForTest(t, ownerEvents, realtime.EventQuestProgressed)
+	completed := requireEventTypeForTest(t, ownerEvents, realtime.EventQuestCompleted)
+	assertQuestEventProgress(t, progressed, accepted.PlayerQuestID.String(), quests.QuestStateCompleted.String(), 1, true)
+	assertQuestEventProgress(t, completed, accepted.PlayerQuestID.String(), quests.QuestStateCompleted.String(), 1, true)
+
+	stored := storedPlayerQuestForTest(t, gameServer, owner.PlayerID, accepted.PlayerQuestID)
+	if stored.State != quests.QuestStateCompleted || len(stored.Progress.Objectives) != 1 ||
+		stored.Progress.Objectives[0].Current != 1 || !stored.Progress.Objectives[0].Completed {
+		t.Fatalf("stored build quest = %+v, want completed 1/1", stored)
+	}
+
+	duplicate := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-planet-building-build-quest-duplicate","op":"planet.building_build","payload":{"planet_id":"`+planetID.String()+`","building_type":"iron_extractor","slot":"alpha"},"client_seq":2,"v":1}`),
+	)
+	if duplicate.HasError {
+		t.Fatalf("duplicate planet.building_build response error = %+v, want success", duplicate.Error)
+	}
+	duplicateEventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationPlanetBuildingBuild, owner.PlayerID)
+	if err != nil {
+		t.Fatalf("post duplicate planet.building_build events: %v", err)
+	}
+	for _, event := range duplicateEventsBySession[owner.SessionID] {
+		if event.Type == realtime.EventQuestProgressed || event.Type == realtime.EventQuestCompleted {
+			t.Fatalf("duplicate build emitted quest event %+v, want none", event)
+		}
+	}
+}
+
+func seedAcceptedBuildQuestForTest(
+	t *testing.T,
+	gameServer *Server,
+	playerID foundation.PlayerID,
+	templateID catalog.DefinitionID,
+	offerID foundation.QuestID,
+) quests.PlayerQuest {
+	t.Helper()
+	questCatalog := quests.MustMVPQuestCatalog()
+	template, ok := questCatalog.Lookup(templateID)
+	if !ok {
+		t.Fatalf("quest template %q not found", templateID)
+	}
+	now := gameServer.runtime.clock.Now().UTC()
+	offer, err := quests.NewGeneratedBoardOffer(
+		offerID,
+		playerID,
+		template,
+		quests.GeneratedPayload{Objective: template.ObjectiveSchema},
+		quests.RewardPayload{Grants: []quests.RewardGrant{{
+			Kind:     quests.RewardKindCredits,
+			Currency: economy.CurrencyBucketCredits,
+			Amount:   100,
+		}}},
+		now.Add(-time.Minute),
+		now.Add(time.Hour),
+	)
+	if err != nil {
+		t.Fatalf("NewGeneratedBoardOffer(build quest) = %v, want nil", err)
+	}
+	if err := gameServer.runtime.Quest.StoreGeneratedBoardOffers([]quests.GeneratedBoardOffer{offer}); err != nil {
+		t.Fatalf("StoreGeneratedBoardOffers(build quest) = %v, want nil", err)
+	}
+
+	gameServer.runtime.mu.Lock()
+	player, err := gameServer.runtime.questBoardSnapshotLocked(playerID)
+	gameServer.runtime.mu.Unlock()
+	if err != nil {
+		t.Fatalf("quest board snapshot: %v", err)
+	}
+	accepted, err := gameServer.runtime.Quest.AcceptQuest(quests.AcceptQuestInput{
+		Player:  player,
+		OfferID: offer.OfferID,
+	})
+	if err != nil {
+		t.Fatalf("AcceptQuest(build quest) = %v, want nil", err)
+	}
+	return accepted
 }
 
 func TestPlanetBuildingConcurrentBuildsSerializeBeforeWalletDebit(t *testing.T) {
