@@ -7,8 +7,10 @@ declare global {
   interface Window {
     __SPACE_MORPG_TEST_DRIVER__?: {
       moveTo(target: Vec2): void;
+      combatUseSkill(targetID: string): void;
       combatStartAttack(targetID: string): void;
       combatStopAttack(): void;
+      combatState(): void;
       portalEnter(portalID: string): void;
       lootPickup(dropID: string): void;
     };
@@ -30,12 +32,18 @@ if (new URLSearchParams(window.location.search).has('smoke')) {
     sendCombatStopAttack(): void;
     sendPortalEnter(portalID: string): void;
     sendCommand(envelope: unknown): void;
-    commandBuilder: { lootPickup(dropID: string): unknown };
+    commandBuilder: {
+      combatUseSkill(targetID: string): unknown;
+      combatState(): unknown;
+      lootPickup(dropID: string): unknown;
+    };
   };
   window.__SPACE_MORPG_TEST_DRIVER__ = {
     moveTo: (target) => testApp.sendMove(target),
+    combatUseSkill: (targetID) => testApp.sendCommand(testApp.commandBuilder.combatUseSkill(targetID)),
     combatStartAttack: (targetID) => testApp.sendCombatStartAttack(targetID),
     combatStopAttack: () => testApp.sendCombatStopAttack(),
+    combatState: () => testApp.sendCommand(testApp.commandBuilder.combatState()),
     portalEnter: (portalID) => testApp.sendPortalEnter(portalID),
     lootPickup: (dropID) => testApp.sendCommand(testApp.commandBuilder.lootPickup(dropID)),
   };

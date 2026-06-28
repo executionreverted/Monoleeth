@@ -35,8 +35,8 @@ Completed and committed:
   seed also projects Kalaazu Phoenix stats onto the legacy starter ship contract
   so existing starter loadout/module wiring keeps working while HP/shield/speed
   match the Kalaazu source.
-- The DarkOrbit-feel canary now proves DB-seeded `1-3` visible NPCs and NPC
-  return fire through the published content DB path.
+- The DarkOrbit-feel canary now proves DB-seeded Origin kill/loot pickup plus
+  `1-3` visible NPCs and NPC return fire through the published content DB path.
 
 Remaining before this plan is complete:
 

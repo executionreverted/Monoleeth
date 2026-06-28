@@ -89,6 +89,7 @@ async function main() {
     await page.goto(`${origin}/?smoke=1`, { waitUntil: 'domcontentloaded' });
     await register(client, `darkorbit-feel-${nonce}@example.test`, 'correct-password', `DO-${nonce.slice(-7)}`);
     const originState = await waitSmoke(client, originReady, 'authenticated Origin state', 30000);
+    console.log('darkorbit-feel phase=origin-ready');
     assert(originState.auth?.session?.authenticated === true, 'real authenticated session missing');
     assert(originState.currentMap?.public_map_key === '1-1', `map ${originState.currentMap?.public_map_key}, want 1-1`);
     assert((originState.currentMap?.visible_portals ?? []).length > 0, 'Origin visible portal missing');
@@ -111,12 +112,14 @@ async function main() {
     const nudge = combatNudge(positionNow(beforeMoveSelf, beforeMove), originNPC.position, beforeMove.stats?.weapon_range ?? 260, beforeMove.currentMap?.bounds);
     await sendDriverCommand(client, 'moveTo', [nudge], 'move_to');
     await waitForInboundEventCount(client, 'combat.shot_started', beforeMoveShotCount + 1, 35000);
-
-    await sendDriverCommand(client, 'combatStopAttack', [], 'combat.stop_attack');
-    await assertNoLeak(client, await smoke(client), 'post-origin-combat state');
+    await killAndPickupOriginLoot(client, originNPC.entity_id);
+    console.log('darkorbit-feel phase=origin-loot-picked');
+    await assertNoLeak(client, await smoke(client), 'post-origin-loot state');
 
     await enterForwardPortal(client, '1-2');
+    console.log('darkorbit-feel phase=map-1-2');
     await enterForwardPortal(client, '1-3');
+    console.log('darkorbit-feel phase=map-1-3');
     const borderArrivalState = await waitSmoke(client, (state) => state.currentMap?.public_map_key === '1-3', 'Border Skirmish map reached', 10000);
     const borderArrivalPosition = positionNow(selfEntity(borderArrivalState), borderArrivalState);
     const borderBands = [
@@ -179,6 +182,7 @@ async function main() {
       15000,
     );
     await sendDriverCommand(client, 'combatStopAttack', [], 'combat.stop_attack');
+    console.log('darkorbit-feel phase=border-return-fire');
     await assertNoLeak(client, await smoke(client), 'final state');
 
     const screenshotPath = resolve(screenshotDir, `darkorbit-feel-desktop-${nonce}.png`);
@@ -446,8 +450,124 @@ async function moveUntilNPC(client, candidates, label, arriveDistance = 1400) {
   throw new Error(`${label} live NPC missing after candidates; last=${compact(smokeSummary(lastState))}`);
 }
 
+async function killAndPickupOriginLoot(client, targetID) {
+  await sustainAttackUntilKilled(client, targetID, 150000);
+  await waitForInboundEvent(
+    client,
+    'combat.attack_stopped',
+    (message) => message.payload?.active === false && message.payload?.last_stop_reason === 'target_destroyed',
+    `Origin combat stopped after kill ${targetID}`,
+    15000,
+  );
+  const lootEvent = await waitForInboundEvent(
+    client,
+    'loot.created',
+    (message) => Boolean(message.payload?.drop_id && message.payload?.item_id && message.payload?.position),
+    'Origin loot.created',
+    15000,
+  );
+  const drop = lootEvent.payload;
+  const lootState = await waitSmoke(
+    client,
+    (state) => Boolean(findKnownDrop(state, drop.drop_id)),
+    `Origin known loot ${drop.drop_id}`,
+    15000,
+  );
+  const knownDrop = findKnownDrop(lootState, drop.drop_id);
+  const beforeCargo = lootState.cargo;
+  await moveToPosition(
+    client,
+    knownDrop.position ?? drop.position,
+    Math.max(60, Math.min(120, (lootState.stats?.loot_pickup_range ?? 120) - 10)),
+    `Origin loot ${drop.drop_id}`,
+    45000,
+  );
+  const pickupPayload = payloadOf(
+    await sendDriverCommand(client, 'lootPickup', [drop.drop_id], 'loot.pickup'),
+    `loot.pickup ${drop.drop_id}`,
+  );
+  assert(pickupPayload.accepted === true, `loot.pickup rejected ${compact(pickupPayload)}`);
+  assert(cargoIncludesPickup(pickupPayload.cargo, beforeCargo, drop), `pickup cargo ${compact(pickupPayload.cargo)} missing ${compact(drop)}`);
+  await waitSmoke(
+    client,
+    (state) => cargoIncludesPickup(state.cargo, beforeCargo, drop) && !findKnownDrop(state, drop.drop_id),
+    `Origin loot ${drop.drop_id} removed and cargo updated`,
+    15000,
+  );
+}
+
+async function sustainAttackUntilKilled(client, targetID, timeoutMS) {
+  const deadline = Date.now() + timeoutMS;
+  let lastShotCount = inboundEventCount(await frames(client), 'combat.shot_started');
+  let lastShotAt = Date.now();
+  let lastKeepaliveAt = Date.now();
+  let restarts = 0;
+  let lastSummary = null;
+  while (Date.now() < deadline) {
+    const killed = inboundMessages(await frames(client), 'combat.npc_killed').find((message) => message.payload?.entity_id === targetID);
+    if (killed) return killed;
+    const state = await smoke(client);
+    const target = findLiveNPCByID(state, targetID);
+    lastSummary = {
+      targetID,
+      target: target
+        ? { hp: target.combat?.hp, shield: target.combat?.shield, status: target.combat?.status, position: target.position }
+        : null,
+      self: selfEntity(state)?.position,
+      pendingCommands: state.pendingCommands,
+      combatEngagement: state.combatEngagement,
+      restarts,
+      eventTypes: Array.from(new Set(inboundMessages(await frames(client)).map((message) => message.type))).slice(-20),
+    };
+    if (!target) {
+      await delay(250);
+      continue;
+    }
+    const self = selfEntity(state);
+    const selfPosition = positionNow(self, state);
+    const targetPosition = positionNow(target, state);
+    const weaponRange = state.stats?.weapon_range ?? 260;
+    if (distance(selfPosition, targetPosition) > Math.max(80, weaponRange - 70)) {
+      await moveToPosition(client, targetPosition, Math.max(80, Math.min(180, weaponRange - 80)), 'Origin sustained target range', 45000);
+      lastShotAt = Date.now();
+    }
+    const shotCount = inboundEventCount(await frames(client), 'combat.shot_started');
+    if (shotCount > lastShotCount) {
+      lastShotCount = shotCount;
+      lastShotAt = Date.now();
+    }
+    if (Date.now() - lastKeepaliveAt > 12000 && Object.keys(state.pendingCommands ?? {}).length === 0) {
+      const response = await sendDriverCommand(client, 'combatState', [], 'combat.state');
+      payloadOf(response, `combat.state keepalive ${targetID}`);
+      lastKeepaliveAt = Date.now();
+    }
+    if (Date.now() - lastShotAt > 9000 && Object.keys(state.pendingCommands ?? {}).length === 0) {
+      const response = await sendDriverCommand(client, 'combatUseSkill', [targetID], 'combat.use_skill');
+      if (response.ok !== true) {
+        if (['ERR_RATE_LIMITED', 'ERR_COOLDOWN_ACTIVE', 'ERR_OUT_OF_RANGE'].includes(response.error?.code)) {
+          lastShotAt = Date.now() - 6000;
+          await delay(500);
+          continue;
+        }
+        payloadOf(response, `fallback combat.use_skill ${targetID}`);
+      }
+      const payload = payloadOf(response, `fallback combat.use_skill ${targetID}`);
+      assert(payload.accepted === true, `fallback combat.use_skill rejected ${compact(payload)}`);
+      restarts++;
+      lastShotAt = Date.now();
+    }
+    await delay(250);
+  }
+  throw new Error(`Origin NPC killed ${targetID} timed out; last=${compact(lastSummary)}`);
+}
+
 function firstKnownDrop(state) {
   return Object.values(state.knownLoot ?? {}).find((drop) => drop?.position && (drop.drop_id || drop.entity_id));
+}
+
+function findKnownDrop(state, dropID) {
+  if (!dropID) return null;
+  return Object.values(state.knownLoot ?? {}).find((drop) => (drop?.drop_id || drop?.entity_id) === dropID) ?? null;
 }
 
 function targetDestroyed(state, targetID) {
@@ -590,7 +710,7 @@ async function waitForInboundEvent(client, type, predicate, label, timeoutMS) {
   return found;
 }
 
-function inboundMessages(frameList, type) {
+function inboundMessages(frameList, type = '') {
   const messages = [];
   for (const frame of frameList ?? []) {
     if (frame.direction !== 'in' || !frame.text) continue;
@@ -600,7 +720,7 @@ function inboundMessages(frameList, type) {
     } catch {
       continue;
     }
-    if (parsed.type === type) messages.push(parsed);
+    if (!type || parsed.type === type) messages.push(parsed);
   }
   return messages;
 }

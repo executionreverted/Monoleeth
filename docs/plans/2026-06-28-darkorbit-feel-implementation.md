@@ -25,14 +25,16 @@ Current browser canary slice:
   `npm run e2e:darkorbit-feel`.
 - The canary boots a real Postgres content DB, publishes the Kalaazu default
   snapshot, registers a real browser account, proves minimized
-  `combat.start_attack`, observes server shot cadence while moving, travels
+  `combat.start_attack`, observes server shot cadence while moving, kills a
+  default-data Origin NPC, receives server-created loot, picks it up into cargo,
+  sends `combat.state` keepalives during the long kill, travels
   `1-1 -> 1-2 -> 1-3`, requires a fresh current-map AOI NPC in `1-3`,
   starts attack there, observes NPC return-fire damage against the real player
   ship, captures a desktop screenshot, and scans smoke state, WebSocket frames,
   and process logs for hidden/fake data tokens.
-- It intentionally does not yet claim the full Task 8 script. Fast default-data
-  kill/loot proof remains open follow-up work because Kalaazu HP/shield values
-  make browser kill timing too long for the current canary budget.
+- The default-data kill/loot browser proof is now covered. The remaining Task 8
+  gap is broader session polish evidence, especially mobile screenshot and
+  scripted 10-minute run notes.
 
 ## Phase 0: Guardrails
 
