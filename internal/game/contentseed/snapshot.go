@@ -88,7 +88,7 @@ func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
 	}
 	snapshot.Maps = rows.MapRows
 	snapshot.MapPortals = rows.MapPortalRows
-	snapshot.Items = appendMissingSnapshotRows(snapshot.Items, rows.ItemRows)
+	snapshot.Items = replaceSnapshotRows(snapshot.Items, rows.ItemRows)
 	snapshot.Modules = replaceSnapshotRows(snapshot.Modules, rows.ModuleRows)
 	snapshot.Ships = replaceSnapshotRows(snapshot.Ships, rows.ShipRows)
 	snapshot.ShopProducts = rows.ShopProductRows

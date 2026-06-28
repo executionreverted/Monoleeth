@@ -19,8 +19,8 @@ func TestBuildStarterItemRowsMapsKalaazuItems(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildStarterItemRows() error = %v, want nil", err)
 	}
-	if got, want := len(rows), len(dumpRows); got != want {
-		t.Fatalf("item rows = %d, want dump row count %d", got, want)
+	if got, want := len(rows), len(dumpRows)+2; got != want {
+		t.Fatalf("item rows = %d, want dump row count plus compatibility rows %d", got, want)
 	}
 
 	phoenix := requireItemDefinitionForTest(t, rows, "ship_phoenix")
@@ -31,6 +31,14 @@ func TestBuildStarterItemRowsMapsKalaazuItems(t *testing.T) {
 	ammo := requireItemDefinitionForTest(t, rows, "ammunition_laser_lcb_10")
 	if ammo.Name != "LCB-10" || ammo.Type != economy.ItemTypeStackable || ammo.MaxStack.Int64() != defaultStackMax {
 		t.Fatalf("lcb ammo item = %+v, want stackable ammo", ammo)
+	}
+	starterLaser := requireItemDefinitionForTest(t, rows, "laser_alpha_t1")
+	if starterLaser.Name != "LF-1" || starterLaser.Type != economy.ItemTypeInstance || starterLaser.MaxStack.Int64() != 1 {
+		t.Fatalf("starter laser item = %+v, want Kalaazu LF-1 instance item projected onto starter contract", starterLaser)
+	}
+	starterShield := requireItemDefinitionForTest(t, rows, "shield_generator_t1")
+	if starterShield.Name != "SG3N-A01" || starterShield.Type != economy.ItemTypeInstance || starterShield.MaxStack.Int64() != 1 {
+		t.Fatalf("starter shield item = %+v, want Kalaazu SG3N-A01 instance item projected onto starter contract", starterShield)
 	}
 }
 

@@ -34,7 +34,7 @@ func mapStarterItemRows(itemRows []DumpRow) ([]content.SnapshotRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows := make([]content.SnapshotRow, 0, len(sources))
+	rows := make([]content.SnapshotRow, 0, len(sources)+2)
 	for _, source := range sources {
 		definition, err := itemDefinitionWithID(source.Source, source.ItemID)
 		if err != nil {
@@ -46,6 +46,11 @@ func mapStarterItemRows(itemRows []DumpRow) ([]content.SnapshotRow, error) {
 		}
 		rows = append(rows, row)
 	}
+	compatibilityRows, err := starterCompatibilityItemRows(sources)
+	if err != nil {
+		return nil, err
+	}
+	rows = append(rows, compatibilityRows...)
 	return rows, nil
 }
 
@@ -114,6 +119,68 @@ func itemDefinitionWithID(source kalaazuItemSource, itemID foundation.ItemID) (e
 		return economy.ItemDefinition{}, err
 	}
 	return definition, nil
+}
+
+func moduleItemDefinitionWithID(source kalaazuItemSource, itemID foundation.ItemID) (economy.ItemDefinition, error) {
+	sourceRow, err := catalog.NewVersionedDefinitionFromStrings(itemID.String(), kalaazuItemCatalogVersion.String())
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	maxStackQuantity, err := foundation.NewQuantity(1)
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	weightQuantity, err := foundation.NewQuantity(6)
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	definition, err := economy.NewItemDefinition(
+		sourceRow,
+		itemID,
+		source.Name,
+		economy.ItemTypeInstance,
+		itemRarity(source),
+		maxStackQuantity,
+		weightQuantity,
+		[]economy.TradeFlag{economy.TradeFlagTradeable, economy.TradeFlagDestroyable},
+		[]economy.BindRule{economy.BindRuleOnEquip},
+		nil,
+	)
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	return definition, nil
+}
+
+func starterCompatibilityItemRows(sources []mappedKalaazuItemSource) ([]content.SnapshotRow, error) {
+	byItemID := make(map[foundation.ItemID]kalaazuItemSource, len(sources))
+	for _, source := range sources {
+		byItemID[source.ItemID] = source.Source
+	}
+	compatibility := []struct {
+		sourceID foundation.ItemID
+		targetID foundation.ItemID
+	}{
+		{sourceID: "equipment_weapon_laser_lf_1", targetID: "laser_alpha_t1"},
+		{sourceID: "equipment_generator_shield_sg3n_a01", targetID: "shield_generator_t1"},
+	}
+	rows := make([]content.SnapshotRow, 0, len(compatibility))
+	for _, projection := range compatibility {
+		source, ok := byItemID[projection.sourceID]
+		if !ok {
+			return nil, fmt.Errorf("starter compatibility item source %q missing", projection.sourceID)
+		}
+		definition, err := moduleItemDefinitionWithID(source, projection.targetID)
+		if err != nil {
+			return nil, err
+		}
+		row, err := snapshotRow(definition.ItemID.String(), definition)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
 }
 
 func uniqueItemID(source kalaazuItemSource, seen map[foundation.ItemID]struct{}) foundation.ItemID {

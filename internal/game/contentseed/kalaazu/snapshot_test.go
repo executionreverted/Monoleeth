@@ -11,8 +11,8 @@ func TestBuildDefaultRowsReturnsImportReportAndAllSupportedGroups(t *testing.T) 
 	if err != nil {
 		t.Fatalf("BuildDefaultRows() error = %v, want nil", err)
 	}
-	if got, want := rows.Report.SourceRows["items"], len(rows.ItemRows); got != want {
-		t.Fatalf("item source/imported rows = %d/%d, want all items imported as definitions", got, want)
+	if got, want := len(rows.ItemRows), rows.Report.SourceRows["items"]+2; got != want {
+		t.Fatalf("item imported/source rows = %d/%d, want source rows plus starter compatibility rows", got, rows.Report.SourceRows["items"])
 	}
 	if rows.Report.SourceRows["maps"] == 0 ||
 		rows.Report.SourceRows["maps_npcs"] == 0 ||
