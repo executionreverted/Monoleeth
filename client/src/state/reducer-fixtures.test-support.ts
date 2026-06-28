@@ -138,6 +138,7 @@ export function stateWithServerOwnedGameplay(): ClientState {
       startedAt: 1000,
       nextFireAt: 1250,
       lastStopReason: null,
+      activeAmmo: {},
     },
     pendingCommands: { 'request-1': { requestID: 'request-1', op: 'move_to', queuedAt: 1 } },
     commandLog: [{ id: 'log-1', level: 'info', text: 'Server log.', at: 1 }],

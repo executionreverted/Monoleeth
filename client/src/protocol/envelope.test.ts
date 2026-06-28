@@ -543,6 +543,7 @@ describe('default outbound operations', () => {
     expect(OPERATIONS.combatStartAttack).toBe('combat.start_attack');
     expect(OPERATIONS.combatStopAttack).toBe('combat.stop_attack');
     expect(OPERATIONS.combatState).toBe('combat.state');
+    expect(OPERATIONS.combatSelectAmmo).toBe('combat.select_ammo');
     expect(CLIENT_EVENTS.combatAttackStarted).toBe('combat.attack_started');
     expect(CLIENT_EVENTS.combatAttackStopped).toBe('combat.attack_stopped');
     expect(CLIENT_EVENTS.combatShotStarted).toBe('combat.shot_started');
@@ -686,7 +687,12 @@ describe('default outbound operations', () => {
     expect(state.payload).toEqual({});
     expect(Object.keys(state.payload)).toEqual([]);
 
-    for (const payload of [start.payload, stop.payload, state.payload]) {
+    const ammo = builder.combatSelectAmmo('laser', 'ammunition_laser_mcb_50');
+    expect(ammo.op).toBe(OPERATIONS.combatSelectAmmo);
+    expect(ammo.payload).toEqual({ family: 'laser', item_id: 'ammunition_laser_mcb_50' });
+    expect(Object.keys(ammo.payload)).toEqual(['family', 'item_id']);
+
+    for (const payload of [start.payload, stop.payload, state.payload, ammo.payload]) {
       for (const forbidden of [
         'player_id',
         'ship_id',

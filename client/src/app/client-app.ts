@@ -56,6 +56,7 @@ export class ClientApp extends ClientAppHandlers {
       },
       onScan: () => this.toggleScanMode(),
       onStealthToggle: () => this.toggleStealth(),
+      onCombatAmmoSelect: (family, itemID) => this.sendCombatAmmoSelect(family, itemID),
       onSelectTarget: (entityID, source) => this.selectEntity(entityID, source ?? 'hud'),
       onCycleTarget: () => this.cycleTarget(),
       onPortalEnter: (portalID) => this.sendPortalEnter(portalID),

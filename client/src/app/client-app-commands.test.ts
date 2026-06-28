@@ -45,6 +45,7 @@ describe('ClientApp combat attack stance commands', () => {
       startedAt: 1000,
       nextFireAt: 1200,
       lastStopReason: null,
+      activeAmmo: {},
     };
     const app = new CombatCommandHarness(state);
 
@@ -88,6 +89,7 @@ describe('ClientApp combat attack stance commands', () => {
       startedAt: 1000,
       nextFireAt: 1200,
       lastStopReason: null,
+      activeAmmo: {},
     };
     pendingStop.pendingCommands = {
       stop: { requestID: 'stop', op: OPERATIONS.combatStopAttack, queuedAt: 1 },

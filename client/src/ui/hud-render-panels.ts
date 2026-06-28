@@ -1030,6 +1030,7 @@ export function laserCommandOp(state: ClientState, target: VisibleEntity | null)
 }
 
 export function laserActionState(state: ClientState, target: VisibleEntity | null, serverNow: number | null = Date.now()): ActionState {
+  const ammoDetail = laserAmmoDetail(state);
   if (!realtimeReady(state)) {
     return { enabled: false, label: 'Attack', detail: 'Offline', title: 'Realtime link is not authenticated.' };
   }
@@ -1048,8 +1049,8 @@ export function laserActionState(state: ClientState, target: VisibleEntity | nul
       label: 'Stop',
       detail: state.combatEngagement.nextFireAt && state.combatEngagement.nextFireAt > (serverNow ?? Date.now())
         ? formatCooldown(state.combatEngagement.nextFireAt - (serverNow ?? Date.now()))
-        : 'Active',
-      title: 'Stop the active attack stance.',
+        : ammoDetail,
+      title: `Stop the active attack stance. Active ammo: ${ammoDetail}.`,
     };
   }
 
@@ -1080,9 +1081,18 @@ export function laserActionState(state: ClientState, target: VisibleEntity | nul
   return {
     enabled: true,
     label: state.combatEngagement.active ? 'Switch' : 'Attack',
-    detail: `${Math.round(energyCost)} cap`,
-    title: `Start basic laser attack stance for ${Math.round(energyCost)} capacitor.`,
+    detail: ammoDetail,
+    title: `Start basic laser attack stance for ${Math.round(energyCost)} capacitor. Active ammo: ${ammoDetail}.`,
   };
+}
+
+function laserAmmoDetail(state: ClientState): string {
+  const laser = state.combatEngagement.activeAmmo.laser;
+  if (!laser) {
+    return 'Ammo';
+  }
+  const label = (laser.ammoKey || laser.itemID).replace(/^ammunition_laser_/, '').replace(/_/g, '-').toUpperCase();
+  return `${label} x${laser.quantity}`;
 }
 
 export function scanActionState(state: ClientState): ActionState {

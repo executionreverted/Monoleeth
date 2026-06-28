@@ -108,6 +108,7 @@ export function initialCombatEngagement(): CombatEngagementState {
     startedAt: null,
     nextFireAt: null,
     lastStopReason: null,
+    activeAmmo: {},
   };
 }
 

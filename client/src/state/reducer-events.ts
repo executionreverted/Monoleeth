@@ -133,7 +133,7 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
     }
 
     case CLIENT_EVENTS.combatStateSnapshot: {
-      const nextState = withoutPendingOperations(state, [OPERATIONS.combatState]);
+      const nextState = withoutPendingOperations(state, [OPERATIONS.combatState, OPERATIONS.combatSelectAmmo]);
       return {
         ...nextState,
         combatEngagement: combatEngagementFromPayload(envelope.payload, envelope.server_time),
@@ -1105,6 +1105,7 @@ function combatEngagementFromPayload(payload: JsonObject, serverTime: number): C
   const startedAt = numberField(payload, 'started_at_ms');
   const nextFireAt = numberField(payload, 'next_fire_at_ms');
   const lastStopReason = stringField(payload, 'last_stop_reason');
+  const activeAmmo = parseCombatAmmoState(payload);
   if (!active) {
     return {
       active: false,
@@ -1113,6 +1114,7 @@ function combatEngagementFromPayload(payload: JsonObject, serverTime: number): C
       startedAt: null,
       nextFireAt: null,
       lastStopReason: lastStopReason || null,
+      activeAmmo,
     };
   }
   return {
@@ -1122,7 +1124,34 @@ function combatEngagementFromPayload(payload: JsonObject, serverTime: number): C
     startedAt: startedAt && startedAt > 0 ? startedAt : serverTime,
     nextFireAt: nextFireAt && nextFireAt > 0 ? nextFireAt : serverTime,
     lastStopReason: lastStopReason || null,
+    activeAmmo,
   };
+}
+
+function parseCombatAmmoState(payload: JsonObject): ClientState['combatEngagement']['activeAmmo'] {
+  const activeAmmo = objectField(payload, 'active_ammo');
+  if (!activeAmmo) {
+    return {};
+  }
+  const parsed: ClientState['combatEngagement']['activeAmmo'] = {};
+  for (const [family, value] of Object.entries(activeAmmo)) {
+    if (!isJsonObject(value)) {
+      continue;
+    }
+    const itemID = stringField(value, 'item_id');
+    if (!itemID) {
+      continue;
+    }
+    parsed[family] = {
+      itemID,
+      ammoKey: stringField(value, 'ammo_key') ?? undefined,
+      quantity: Math.max(0, Math.round(numberField(value, 'quantity') ?? 0)),
+      powerMultiplier: numberField(value, 'power_multiplier') ?? undefined,
+      fallbackRank: numberField(value, 'fallback_rank') ?? undefined,
+      slotbarOrder: numberField(value, 'slotbar_order') ?? undefined,
+    };
+  }
+  return parsed;
 }
 
 const socialServerFieldAllowlist = new Set(['player_id', 'sender_id', 'inviter_id', 'invitee_id', 'owner_id', 'set_by_player_id']);

@@ -507,6 +507,14 @@ export class HUD {
             this.handlers.onCoordinateItemUse(button.dataset.itemInstanceId);
           }
           break;
+        case 'combat-ammo-select':
+          if (button.dataset.itemId) {
+            const family = button.dataset.ammoFamily === 'rocket' || button.dataset.ammoFamily === 'rocket_launcher'
+              ? button.dataset.ammoFamily
+              : 'laser';
+            this.handlers.onCombatAmmoSelect(family, button.dataset.itemId);
+          }
+          break;
         case 'hangar-activate':
           if (button.dataset.shipId) {
             this.handlers.onHangarActivateShip(button.dataset.shipId);

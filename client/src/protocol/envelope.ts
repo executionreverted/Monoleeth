@@ -12,6 +12,7 @@ export const OPERATIONS = {
   combatStartAttack: 'combat.start_attack',
   combatStopAttack: 'combat.stop_attack',
   combatState: 'combat.state',
+  combatSelectAmmo: 'combat.select_ammo',
   lootPickup: 'loot.pickup',
   shieldRepairTick: 'repair.shield_tick',
   deathRepairQuote: 'death.repair_quote',

@@ -145,6 +145,17 @@ export abstract class ClientAppCommands extends ClientAppCore {
     this.sendCommand(this.commandBuilder.combatStopAttack());
   }
 
+  protected sendCombatAmmoSelect(family: 'laser' | 'rocket' | 'rocket_launcher', itemID: string): void {
+    if (!itemID) {
+      return;
+    }
+    if (this.hasPendingOperation(OPERATIONS.combatSelectAmmo)) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Ammo selection already pending.' });
+      return;
+    }
+    this.sendCommand(this.commandBuilder.combatSelectAmmo(family, itemID));
+  }
+
   protected sendLootPickup(): void {
     const target = this.selectedTarget();
     if (!target || target.entity_type !== 'loot') {

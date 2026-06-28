@@ -20,6 +20,7 @@ export interface HUDHandlers {
   onRepair(): void;
   onScan(): void;
   onStealthToggle(): void;
+  onCombatAmmoSelect(family: 'laser' | 'rocket' | 'rocket_launcher', itemID: string): void;
   onSelectTarget(entityID: string, source?: 'hud' | 'radar'): void;
   onCycleTarget(): void;
   onPortalEnter(portalID: string): void;

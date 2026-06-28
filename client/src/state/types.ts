@@ -1056,6 +1056,16 @@ export interface CombatEngagementState {
   startedAt: number | null;
   nextFireAt: number | null;
   lastStopReason: string | null;
+  activeAmmo: Record<string, CombatAmmoState>;
+}
+
+export interface CombatAmmoState {
+  itemID: string;
+  ammoKey?: string;
+  quantity: number;
+  powerMultiplier?: number;
+  fallbackRank?: number;
+  slotbarOrder?: number;
 }
 
 export interface SocialChatMessage {

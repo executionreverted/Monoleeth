@@ -732,6 +732,7 @@ describe('actionBar', () => {
       startedAt: 19_000,
       nextFireAt: 20_600,
       lastStopReason: null,
+      activeAmmo: {},
     };
 
     const barHTML = actionBar(state, 20_000);
@@ -756,6 +757,7 @@ describe('actionBar', () => {
       startedAt: 19_000,
       nextFireAt: 20_600,
       lastStopReason: null,
+      activeAmmo: {},
     };
 
     const barHTML = actionBar(state, 20_000);

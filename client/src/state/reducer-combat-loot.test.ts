@@ -386,6 +386,16 @@ describe('reduceClientState', () => {
         started_at_ms: 5000,
         next_fire_at_ms: 7600,
         last_stop_reason: '',
+        active_ammo: {
+          laser: {
+            item_id: 'ammunition_laser_mcb_50',
+            ammo_key: 'mcb_50',
+            quantity: 12,
+            power_multiplier: 3,
+            fallback_rank: 3,
+            slotbar_order: 3,
+          },
+        },
       }, 6),
     });
     const stopped = reduceClientState({
@@ -438,6 +448,12 @@ describe('reduceClientState', () => {
       amount: 15,
     }));
     expect(reconciled.combatEngagement.nextFireAt).toBe(7600);
+    expect(reconciled.combatEngagement.activeAmmo.laser).toMatchObject({
+      itemID: 'ammunition_laser_mcb_50',
+      ammoKey: 'mcb_50',
+      quantity: 12,
+      powerMultiplier: 3,
+    });
     expect(stopped.pendingCommands['stop-1']).toBeUndefined();
     expect(stopped.combatEngagement).toMatchObject({
       active: false,
@@ -459,6 +475,7 @@ describe('reduceClientState', () => {
         startedAt: 5000,
         nextFireAt: 7600,
         lastStopReason: null,
+        activeAmmo: {},
       },
     };
 

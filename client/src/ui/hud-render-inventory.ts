@@ -122,9 +122,10 @@ export function inventoryStoredPanel(context: InventoryTabContext): string {
   const stackRows = inventory.stackable
     .map(
       (item) => `
-        <li>
+        <li data-item-id="${escapeHTML(item.item_id)}">
           <span title="${escapeHTML(publicInventoryStateLabel(item.location))}">${escapeHTML(item.display_name || item.item_id)}</span>
           <strong>${item.quantity}</strong>
+          ${combatAmmoAction(item, state)}
         </li>
       `,
     )
@@ -146,6 +147,27 @@ export function inventoryStoredPanel(context: InventoryTabContext): string {
       </div>
     </section>
   `;
+}
+
+function combatAmmoAction(item: NonNullable<ClientState['inventory']>['stackable'][number], state: ClientState): string {
+  if (!isLaserAmmoItem(item.item_id)) {
+    return '';
+  }
+  const pending = hasPendingOpPayloadField(state, OPERATIONS.combatSelectAmmo, 'item_id', item.item_id);
+  const selected = state.combatEngagement.activeAmmo.laser?.itemID === item.item_id;
+  const enabled = realtimeReady(state) && !pending && item.location === 'account_inventory' && item.quantity > 0;
+  const title = item.location !== 'account_inventory'
+    ? 'Ammo must be in account inventory'
+    : pending
+      ? 'Ammo selection pending'
+      : selected
+        ? 'Laser ammo selected server-side'
+        : 'Select laser ammo server-side';
+  return `<button type="button" data-action="combat-ammo-select" data-ammo-family="laser" data-item-id="${escapeHTML(item.item_id)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${pending ? 'Selecting' : selected ? 'Selected' : 'Ammo'}</button>`;
+}
+
+function isLaserAmmoItem(itemID: string): boolean {
+  return itemID.startsWith('ammunition_laser_');
 }
 
 function coordinateScrollPanel(items: NonNullable<ClientState['inventory']>['instances'], state: ClientState): string {
