@@ -117,7 +117,68 @@ async function main() {
 
     await enterForwardPortal(client, '1-2');
     await enterForwardPortal(client, '1-3');
-    await waitSmoke(client, (state) => state.currentMap?.public_map_key === '1-3', 'Border Skirmish map reached', 10000);
+    const borderArrivalState = await waitSmoke(client, (state) => state.currentMap?.public_map_key === '1-3', 'Border Skirmish map reached', 10000);
+    const borderArrivalPosition = positionNow(selfEntity(borderArrivalState), borderArrivalState);
+    const borderBands = [
+      { x: 5200, y: 4096 },
+      { x: 10400, y: 4096 },
+      { x: 15600, y: 4096 },
+    ].sort((a, b) => distance(borderArrivalPosition, a) - distance(borderArrivalPosition, b));
+    await resetWebSocketFrames(client);
+    const borderState = await moveUntilNPC(
+      client,
+      borderBands,
+      'Border Skirmish NPC band',
+      260,
+    );
+    let borderNPC = findLiveNPCByID(borderState, borderState.__preferredTargetID) ?? findNearestLiveNPC(borderState);
+    await moveToPosition(client, borderNPC.position, Math.max(80, Math.min(220, (borderState.stats?.weapon_range ?? 260) - 40)), 'Border attack target', 45000);
+    const borderAttackState = await waitSmoke(client, (state) => findLiveNPCByID(state, borderNPC.entity_id), 'fresh Border attack target', 10000);
+    borderNPC = findLiveNPCByID(borderAttackState, borderNPC.entity_id);
+    const borderSelf = selfEntity(borderAttackState);
+    const borderSelfID = borderSelf.entity_id;
+    assert(!borderAttackState.ship?.disabled, `ship disabled before Border attack ${compact(borderAttackState.ship)}`);
+    const beforeReturnFireShield = Number(borderSelf.combat?.shield ?? borderAttackState.ship?.shield ?? 0);
+    const beforeReturnFireHP = Number(borderSelf.combat?.hp ?? borderAttackState.ship?.hull ?? 0);
+    await resetWebSocketFrames(client);
+    const borderStartPayload = payloadOf(
+      await sendDriverCommand(client, 'combatStartAttack', [borderNPC.entity_id], 'combat.start_attack'),
+      `border combat.start_attack ${borderNPC.entity_id} ${compact({ target: borderNPC, self: borderAttackState.ship })}`,
+    );
+    assert(borderStartPayload.accepted === true, `border combat.start_attack rejected ${compact(borderStartPayload)}`);
+    await waitForInboundEvent(
+      client,
+      'combat.shot_started',
+      (message) => message.payload?.target_id === borderNPC.entity_id && message.payload?.skill_id === 'basic_laser',
+      'Border player shot',
+      35000,
+    );
+    await waitForInboundEvent(
+      client,
+      'combat.shot_started',
+      (message) => message.payload?.target_id === borderSelfID && message.payload?.source_id !== borderSelfID,
+      'Border NPC return-fire shot',
+      45000,
+    );
+    await waitForInboundEvent(
+      client,
+      'combat.damage',
+      (message) => message.payload?.target_id === borderSelfID && Number(message.payload?.amount ?? 0) > 0,
+      'Border NPC return-fire damage',
+      45000,
+    );
+    await waitSmoke(
+      client,
+      (state) => {
+        const self = selfEntity(state);
+        const shield = Number(self?.combat?.shield ?? state.ship?.shield ?? beforeReturnFireShield);
+        const hp = Number(self?.combat?.hp ?? state.ship?.hull ?? beforeReturnFireHP);
+        return shield < beforeReturnFireShield || hp < beforeReturnFireHP;
+      },
+      'Border return-fire reduced player shield or hull',
+      15000,
+    );
+    await sendDriverCommand(client, 'combatStopAttack', [], 'combat.stop_attack');
     await assertNoLeak(client, await smoke(client), 'final state');
 
     const screenshotPath = resolve(screenshotDir, `darkorbit-feel-desktop-${nonce}.png`);
@@ -368,17 +429,19 @@ async function moveToPosition(client, targetPosition, arriveDistance, label, tim
   throw new Error(`Timed out before reaching ${label} at ${fmt(targetPosition)}`);
 }
 
-async function moveUntilNPC(client, candidates, label) {
+async function moveUntilNPC(client, candidates, label, arriveDistance = 1400) {
   let lastState = null;
   for (const candidate of candidates) {
-    await moveToPosition(client, candidate, 1400, `${label} ${fmt(candidate)}`, 90000);
+    await resetWebSocketFrames(client);
+    await moveToPosition(client, candidate, arriveDistance, `${label} ${fmt(candidate)}`, 90000);
     lastState = await waitSmoke(
       client,
       (state) => state.currentMap?.public_map_key === '1-3',
       `${label} map ready`,
       10000,
     );
-    if (findLiveNPC(lastState)) return lastState;
+    const freshNPC = findRecentLiveNPC(lastState, await frames(client));
+    if (freshNPC) return { ...lastState, __preferredTargetID: freshNPC.entity_id };
   }
   throw new Error(`${label} live NPC missing after candidates; last=${compact(smokeSummary(lastState))}`);
 }
@@ -412,6 +475,27 @@ function findLiveNPC(state) {
       return hp > 0 && !['dead', 'destroyed', 'disabled'].includes(String(entity.combat?.status ?? 'active').toLowerCase());
     })
     .sort((a, b) => combatDurability(a) - combatDurability(b))[0];
+}
+
+function findLiveNPCByID(state, entityID) {
+  if (!entityID) return null;
+  const entity = state.visibleEntities?.[entityID];
+  if (!entity || entity.entity_type !== 'npc' || !entity.position) return null;
+  const hp = Number(entity.combat?.hp ?? 1);
+  if (hp <= 0 || ['dead', 'destroyed', 'disabled'].includes(String(entity.combat?.status ?? 'active').toLowerCase())) return null;
+  return entity;
+}
+
+function findRecentLiveNPC(state, frameList) {
+  const ids = [];
+  for (const message of inboundMessages(frameList, 'aoi.entity_entered').concat(inboundMessages(frameList, 'aoi.entity_updated'))) {
+    if (message.payload?.entity_type === 'npc' && message.payload?.entity_id) ids.push(message.payload.entity_id);
+  }
+  for (const entityID of ids.reverse()) {
+    const entity = findLiveNPCByID(state, entityID);
+    if (entity) return entity;
+  }
+  return null;
 }
 
 function combatDurability(entity) {
@@ -492,8 +576,22 @@ async function waitForInboundEventCount(client, type, count, timeoutMS) {
   }, timeoutMS, `${type} x${count}`);
 }
 
-function inboundEventCount(frameList, type) {
-  let count = 0;
+async function waitForInboundEvent(client, type, predicate, label, timeoutMS) {
+  let found = null;
+  await waitFor(async () => {
+    for (const message of inboundMessages(await frames(client), type)) {
+      if (predicate(message)) {
+        found = message;
+        return;
+      }
+    }
+    assert(false, `${label} event missing`);
+  }, timeoutMS, label);
+  return found;
+}
+
+function inboundMessages(frameList, type) {
+  const messages = [];
   for (const frame of frameList ?? []) {
     if (frame.direction !== 'in' || !frame.text) continue;
     let parsed;
@@ -502,9 +600,13 @@ function inboundEventCount(frameList, type) {
     } catch {
       continue;
     }
-    if (parsed.type === type) count += 1;
+    if (parsed.type === type) messages.push(parsed);
   }
-  return count;
+  return messages;
+}
+
+function inboundEventCount(frameList, type) {
+  return inboundMessages(frameList, type).length;
 }
 
 function assertExactOutboundPayload(client, op, keys) {

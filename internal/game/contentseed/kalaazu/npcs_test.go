@@ -32,6 +32,10 @@ func TestBuildStarterNPCRowsMapsDensityAndStats(t *testing.T) {
 	if starterPool.MapID != "map_1_1" || starterPool.MapMaxAlive != 80 || starterPool.PoolMaxAlive != 12 || starterPool.InitialAlive != 4 {
 		t.Fatalf("starter pool = %+v, want Kalaazu amount 80 scaled to 12/4", starterPool)
 	}
+	mapThreePool := decodeEnemyPoolForTest(t, result.EnemyPools[5])
+	if mapThreePool.MapID != "map_1_3" || mapThreePool.MapMaxAlive != 98 {
+		t.Fatalf("map_1_3 pool = %+v, want shared map cap from total Kalaazu amount 98", mapThreePool)
+	}
 
 	lordakia := findTemplateForTest(t, result.NPCTemplates, "map_1_2", "lordakia")
 	if lordakia.HPMax != 2000 || lordakia.ShieldMax != 2000 || lordakia.WeaponDamage != 90 || lordakia.Speed != 300 {

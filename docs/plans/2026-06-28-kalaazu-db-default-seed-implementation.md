@@ -29,15 +29,20 @@ Completed and committed:
   `content_map_portals` draft tables, and the default starter config rewrites
   its world seed to the first Kalaazu starter enemy pool instead of the legacy
   `starter_training_drone_pool` reference.
+- Task 7 browser-density hardening: Kalaazu enemy pools now use a shared
+  per-map alive cap derived from total source map density, so multi-pool maps
+  such as `1-3` are not capped by the smallest NPC row. The published default
+  seed also projects Kalaazu Phoenix stats onto the legacy starter ship contract
+  so existing starter loadout/module wiring keeps working while HP/shield/speed
+  match the Kalaazu source.
+- The DarkOrbit-feel canary now proves DB-seeded `1-3` visible NPCs and NPC
+  return fire through the published content DB path.
 
 Remaining before this plan is complete:
 
 - Finish Task 8 hardening: reduce the default snapshot's dependence on the
   legacy static `DefaultGameplayContent` base rows or explicitly document every
   remaining base row as a temporary bridge.
-- Make DB-seeded non-starter maps visibly spawn their Kalaazu NPC pools in the
-  browser canary; `1-3` currently loads as a map but does not expose live NPCs
-  to `client/tests/e2e/phase11-darkorbit-feel-flow.mjs`.
 - Run Task 10 full verification, including `go test ./...`, client check, and
   `git diff --check`.
 - Speed generator rows are now mapped through `modules.StatSpeed`; remaining

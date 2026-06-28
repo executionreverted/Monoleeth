@@ -45,7 +45,10 @@ func (runtime *Runtime) applyActiveShipLocked(playerID foundation.PlayerID, ship
 	} else {
 		state.Ship.DisplayName = definition.Name
 	}
-	if previousShipID != "" && previousShipID != shipID.String() {
+	refreshSameShipStats := runtime.starterContent.BalanceProfileID == "kalaazu_default_seed_v1" && (state.Ship.MaxHull != int(definition.BaseStats.HP) ||
+		state.Ship.MaxShield != int(definition.BaseStats.Shield) ||
+		state.Ship.MaxCapacitor != int(definition.BaseStats.Energy))
+	if previousShipID != "" && (previousShipID != shipID.String() || refreshSameShipStats) {
 		state.Ship.Hull = int(definition.BaseStats.HP)
 		state.Ship.MaxHull = int(definition.BaseStats.HP)
 		state.Ship.Shield = int(definition.BaseStats.Shield)

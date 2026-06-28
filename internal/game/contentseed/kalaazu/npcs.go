@@ -69,6 +69,7 @@ func mapStarterNPCRows(mapRows []DumpRow, mapsNPCsRows []DumpRow, npcRows []Dump
 	}
 
 	assignments := make([]kalaazuMapNPCSource, 0)
+	mapAliveCaps := make(map[int]int)
 	for _, row := range mapsNPCsRows {
 		assignment, err := decodeKalaazuMapNPC(row)
 		if err != nil {
@@ -78,6 +79,7 @@ func mapStarterNPCRows(mapRows []DumpRow, mapsNPCsRows []DumpRow, npcRows []Dump
 			continue
 		}
 		assignments = append(assignments, assignment)
+		mapAliveCaps[assignment.MapID] += maxInt(1, assignment.Amount)
 	}
 	sort.Slice(assignments, func(i, j int) bool {
 		if assignments[i].MapID == assignments[j].MapID {
@@ -94,7 +96,7 @@ func mapStarterNPCRows(mapRows []DumpRow, mapsNPCsRows []DumpRow, npcRows []Dump
 		if !ok {
 			return NPCRowsResult{}, fmt.Errorf("maps_npcs npc %d: %w", assignment.NPCID, ErrMalformedDumpSQL)
 		}
-		rowSet, err := mapNPCRowSet(mapSource, npcSource, assignment.Amount, perMapIndex[mapSource.MapID])
+		rowSet, err := mapNPCRowSet(mapSource, npcSource, assignment.Amount, mapAliveCaps[assignment.MapID], perMapIndex[mapSource.MapID])
 		if err != nil {
 			return NPCRowsResult{}, err
 		}
@@ -192,7 +194,7 @@ type npcRowSet struct {
 	LeashProfile content.SnapshotRow
 }
 
-func mapNPCRowSet(mapSource kalaazuMapSource, npcSource kalaazuNPCSource, amount int, index int) (npcRowSet, error) {
+func mapNPCRowSet(mapSource kalaazuMapSource, npcSource kalaazuNPCSource, amount int, mapAliveCap int, index int) (npcRowSet, error) {
 	prefix := fmt.Sprintf("%s.%s_%d", mapSource.MapID, npcSource.NPCType, npcSource.KalaazuID)
 	templateID := worldmaps.NPCStatTemplateID(prefix + "_template")
 	spawnAreaID := worldmaps.SpawnAreaID(prefix + "_area")
@@ -235,7 +237,7 @@ func mapNPCRowSet(mapSource kalaazuMapSource, npcSource kalaazuNPCSource, amount
 		MinLevel:         1,
 		MaxLevel:         1,
 		SpawnAreaIDs:     []worldmaps.SpawnAreaID{spawnAreaID},
-		MapMaxAlive:      maxInt(1, amount),
+		MapMaxAlive:      maxInt(1, mapAliveCap),
 		PoolMaxAlive:     minInt(maxInt(1, amount), maxPoolAliveFromKalaazu),
 		InitialAlive:     minInt(minInt(maxInt(1, amount), maxPoolAliveFromKalaazu), maxInitialAlive),
 		SpawnInterval:    20 * time.Second,

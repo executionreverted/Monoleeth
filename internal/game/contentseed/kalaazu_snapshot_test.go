@@ -51,11 +51,14 @@ func TestBuildMVPSnapshotUsesKalaazuStarterMapAndNPCRows(t *testing.T) {
 		t.Fatalf("streuner template = %+v, want Kalaazu stats", streuner)
 	}
 	saimonPool := requireSeedEnemyPoolRow(t, snapshot.EnemyPools, "map_1_3", "saimon")
-	if saimonPool.MapMaxAlive != 30 || saimonPool.PoolMaxAlive != 12 || saimonPool.InitialAlive != 4 {
-		t.Fatalf("saimon pool = %+v, want Kalaazu amount 30 scaled to 12/4", saimonPool)
+	if saimonPool.MapMaxAlive != 98 || saimonPool.PoolMaxAlive != 12 || saimonPool.InitialAlive != 4 {
+		t.Fatalf("saimon pool = %+v, want Kalaazu map total 98 with amount 30 scaled to 12/4", saimonPool)
 	}
 	starterPool := requireSeedEnemyPoolRow(t, snapshot.EnemyPools, "map_1_1", "streuner")
 	starterConfig := requireStarterConfigRow(t, snapshot.StarterConfigs)
+	if starterConfig.ShipID != "starter" || starterConfig.ShipDisplayName != "Phoenix" {
+		t.Fatalf("starter ship = %q/%q, want starter contract with Phoenix display", starterConfig.ShipID, starterConfig.ShipDisplayName)
+	}
 	if len(starterConfig.WorldSeeds) != 1 ||
 		starterConfig.WorldSeeds[0].MapID != starterPool.MapID ||
 		starterConfig.WorldSeeds[0].EnemyPoolID != starterPool.EnemyPoolID {
@@ -65,6 +68,10 @@ func TestBuildMVPSnapshotUsesKalaazuStarterMapAndNPCRows(t *testing.T) {
 	goliath := requireSeedShipRow(t, snapshot.Ships, "ship_goliath")
 	if goliath.BaseStats.HP != 256000 || goliath.Slots.Offensive != 15 || goliath.Slots.Defensive != 15 {
 		t.Fatalf("goliath = %+v, want Kalaazu ship stats", goliath)
+	}
+	starterShip := requireSeedShipRow(t, snapshot.Ships, "starter")
+	if starterShip.BaseStats.HP != 4000 || starterShip.BaseStats.Speed != 320 || starterShip.Slots.Offensive != 1 {
+		t.Fatalf("starter ship = %+v, want Kalaazu Phoenix stats on starter contract", starterShip)
 	}
 }
 

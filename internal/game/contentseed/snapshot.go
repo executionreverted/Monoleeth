@@ -10,6 +10,7 @@ import (
 	"gameproject/internal/game/contentseed/kalaazu"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/quests"
+	"gameproject/internal/game/ships"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
 )
@@ -91,6 +92,9 @@ func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
 	snapshot.Items = appendMissingSnapshotRows(snapshot.Items, rows.ItemRows)
 	snapshot.Modules = appendMissingSnapshotRows(snapshot.Modules, rows.ModuleRows)
 	snapshot.Ships = appendMissingSnapshotRows(snapshot.Ships, rows.ShipRows)
+	if err := applyKalaazuStarterShipStats(snapshot, rows.ShipRows); err != nil {
+		return err
+	}
 	snapshot.ShopProducts = appendMissingSnapshotRows(snapshot.ShopProducts, rows.ShopProductRows)
 	snapshot.NPCTemplates = rows.NPCTemplateRows
 	snapshot.SpawnAreas = rows.SpawnAreaRows
@@ -136,6 +140,8 @@ func applyKalaazuStarterConfigRows(snapshot *content.Snapshot) error {
 	if err := json.Unmarshal(snapshot.StarterConfigs[0].DataJSON, &starter); err != nil {
 		return fmt.Errorf("starter config row: %w", err)
 	}
+	starter.BalanceProfileID = "kalaazu_default_seed_v1"
+	starter.BalanceProfileNote = "Default content DB seed derived from Kalaazu starter reference rows; legacy starter ship id keeps existing loadout contracts while ship stats use Kalaazu Phoenix values."
 	starter.WorldSeeds = []content.WorldSeedContent{{
 		MapID:       pool.MapID,
 		EnemyPoolID: pool.EnemyPoolID,
@@ -146,6 +152,47 @@ func applyKalaazuStarterConfigRows(snapshot *content.Snapshot) error {
 	}
 	snapshot.StarterConfigs[0] = row
 	return nil
+}
+
+func applyKalaazuStarterShipStats(snapshot *content.Snapshot, kalaazuShipRows []content.SnapshotRow) error {
+	var phoenix ships.ShipDefinition
+	foundPhoenix := false
+	for _, row := range kalaazuShipRows {
+		if row.ContentID != "ship_phoenix" {
+			continue
+		}
+		if err := json.Unmarshal(row.DataJSON, &phoenix); err != nil {
+			return fmt.Errorf("kalaazu phoenix ship row: %w", err)
+		}
+		foundPhoenix = true
+		break
+	}
+	if !foundPhoenix {
+		return fmt.Errorf("kalaazu phoenix ship row missing")
+	}
+	source, err := catalog.NewVersionedDefinitionFromStrings(content.DefaultStarterShipID.String(), phoenix.Source.Version.String())
+	if err != nil {
+		return err
+	}
+	starter, err := ships.NewShipDefinition(source, content.DefaultStarterShipID, phoenix.Name, phoenix.Tier, phoenix.Role, phoenix.RankRequirement, phoenix.BaseStats, phoenix.Slots)
+	if err != nil {
+		return err
+	}
+	starter.CreditPrice = phoenix.CreditPrice
+	starter.PremiumPrice = phoenix.PremiumPrice
+	starter.AuctionBuyNowPrice = phoenix.AuctionBuyNowPrice
+	starter.RepairCostMultiplierBps = phoenix.RepairCostMultiplierBps
+	row, err := newSnapshotRow(content.DefaultStarterShipID.String(), starter)
+	if err != nil {
+		return err
+	}
+	for index := range snapshot.Ships {
+		if snapshot.Ships[index].ContentID == content.ContentID(content.DefaultStarterShipID.String()) {
+			snapshot.Ships[index] = row
+			return nil
+		}
+	}
+	return fmt.Errorf("starter ship row missing")
 }
 
 func appendServerRuleRows(snapshot *content.Snapshot, bundle content.GameplayContent) error {

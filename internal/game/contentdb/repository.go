@@ -46,6 +46,10 @@ func ValidateSnapshot(snapshot content.Snapshot, worldID world.WorldID) error {
 	return err
 }
 
+func MapSnapshotContent(snapshot content.Snapshot, worldID world.WorldID) (content.GameplayContent, error) {
+	return mapPublishedSnapshot(snapshot, worldID)
+}
+
 func newRepository(loader publishedSnapshotLoader) (*Repository, error) {
 	if isNilSnapshotLoader(loader) {
 		return nil, ErrNilDatabase

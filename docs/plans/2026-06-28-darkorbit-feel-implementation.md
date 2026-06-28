@@ -26,11 +26,13 @@ Current browser canary slice:
 - The canary boots a real Postgres content DB, publishes the Kalaazu default
   snapshot, registers a real browser account, proves minimized
   `combat.start_attack`, observes server shot cadence while moving, travels
-  `1-1 -> 1-2 -> 1-3`, captures a desktop screenshot, and scans smoke state,
-  WebSocket frames, and process logs for hidden/fake data tokens.
-- It intentionally does not yet claim the full Task 8 script. Live `1-3` NPC
-  density/return-fire and fast default-data kill/loot proof remain open follow-up
-  work.
+  `1-1 -> 1-2 -> 1-3`, requires a fresh current-map AOI NPC in `1-3`,
+  starts attack there, observes NPC return-fire damage against the real player
+  ship, captures a desktop screenshot, and scans smoke state, WebSocket frames,
+  and process logs for hidden/fake data tokens.
+- It intentionally does not yet claim the full Task 8 script. Fast default-data
+  kill/loot proof remains open follow-up work because Kalaazu HP/shield values
+  make browser kill timing too long for the current canary budget.
 
 ## Phase 0: Guardrails
 

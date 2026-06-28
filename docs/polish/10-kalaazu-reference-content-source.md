@@ -100,9 +100,11 @@ Implemented mapping rules:
 - Maps and portals: `1-1`, `1-2`, and `1-3` become `map_1_1`, `map_1_2`, and
   `map_1_3`, with Kalaazu coordinate limits and visible portal coordinates.
   Portal destinations stay server-side.
-- NPC density: each `maps_npcs.amount` becomes `MapMaxAlive`; per-pool live
-  count is capped at `12`; initial live count is capped at `4`; respawn cadence
-  uses a short 20 second delay with jitter for early-map rhythm.
+- NPC density: each map uses the sum of its supported `maps_npcs.amount` values
+  as the shared `MapMaxAlive`, so multi-pool maps are not capped by their
+  smallest NPC row. Per-pool live count is capped at `12`; initial live count is
+  capped at `4`; respawn cadence uses a short 20 second delay with jitter for
+  early-map rhythm.
 - NPC stats: Kalaazu health, shield, damage, speed, and AI feed our NPC stat,
   aggro, drop, and leash rows with safe defaults for fields the dump does not
   define.

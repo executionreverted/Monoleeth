@@ -193,8 +193,9 @@ Use these labels instead of a single "done":
 e2e:darkorbit-feel` is a partial feel gate, not a polish-complete claim. It
 proves a real DB-seeded browser account can enter attack stance, emit minimized
 `combat.start_attack`, receive server-driven shot cadence while moving, travel
-from `1-1` through `1-2` into `1-3`, and pass smoke/WebSocket/log leak scans.
+from `1-1` through `1-2` into `1-3`, acquire a fresh current-map `1-3` NPC,
+take NPC return-fire damage, and pass smoke/WebSocket/log leak scans.
 
-Still missing for this document: visible `1-3` NPC density, NPC return fire,
-default-data kill/loot timing that is fast enough for a browser canary, mobile
-screenshot evidence, and a scripted 10-minute session note.
+Still missing for this document: default-data kill/loot timing that is fast
+enough for a browser canary, mobile screenshot evidence, and a scripted
+10-minute session note.
