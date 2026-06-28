@@ -193,7 +193,32 @@
     bottom: 0;
     width: 100%;
     height: auto;
+    min-height: 0;
     max-height: min(16rem, calc(100vh - 13.5rem));
+  }
+
+  .hud-window[data-window-panel="chat"] {
+    height: auto;
+    min-height: 0;
+  }
+
+  .hud-window[data-window-panel="chat"] .hud-window__body {
+    display: block;
+    overflow: auto;
+  }
+
+  .chat-console {
+    min-height: 11rem;
+    grid-template-rows: auto minmax(5rem, 1fr) auto;
+  }
+
+  .chat-console__head,
+  .chat-channel-strip {
+    display: none;
+  }
+
+  .chat-composer {
+    grid-template-columns: minmax(4.75rem, 0.35fr) minmax(0, 1fr) minmax(4.5rem, 0.25fr);
   }
 
   .hud-window:not([data-focused="true"]) {

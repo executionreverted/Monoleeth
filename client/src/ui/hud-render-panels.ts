@@ -33,7 +33,7 @@ export function windowLayout(id: HUDWindowID): { width: number; preferredHeight:
     case 'systems':
       return { width: 540, preferredHeight: 470, size: 'system' };
     case 'chat':
-      return { width: 560, preferredHeight: 520, size: 'dual-pane' };
+      return { width: 680, preferredHeight: 640, size: 'dual-pane' };
     case 'social':
       return { width: 560, preferredHeight: 620, size: 'dual-pane' };
     case 'ops':
@@ -443,32 +443,87 @@ export function socialPanel(state: ClientState): string {
 export function chatPanel(state: ClientState): string {
   const social = state.social;
   const connected = realtimeReady(state);
+  const recentMessages = social.chatMessages.slice(-80);
   return `
     <h2>Chat</h2>
-    <section class="systems-block">
-      <div class="meta-row"><span>Messages</span><strong>${social.chatMessages.length}</strong></div>
+    <section class="chat-console" data-chat-console="true">
+      <header class="chat-console__head">
+        <div>
+          <strong>Channels</strong>
+          <span>${connected ? 'Connected' : 'Offline'}</span>
+        </div>
+        <div class="chat-console__stats" aria-label="Chat counters">
+          <span>Local</span>
+          <strong>${chatCountByKind(social.chatMessages, 'local_map')}</strong>
+          <span>Party</span>
+          <strong>${chatCountByKind(social.chatMessages, 'party')}</strong>
+          <span>Clan</span>
+          <strong>${chatCountByKind(social.chatMessages, 'clan')}</strong>
+        </div>
+      </header>
+      <div class="chat-channel-strip" aria-label="Available chat channels">
+        <span data-channel="local_map">Local</span>
+        <span data-channel="party">Party</span>
+        <span data-channel="clan">Clan</span>
+      </div>
+      <div class="chat-message-pane" role="log" aria-live="polite">
       ${
-        social.chatMessages.length > 0
-          ? `<ol class="log-lines log-lines--chat">
-              ${social.chatMessages
-                .slice(-12)
-                .reverse()
-                .map((message) => `<li data-level="info"><strong>${escapeHTML(message.sender_name)}</strong> ${escapeHTML(message.content)}</li>`)
-                .join('')}
+        recentMessages.length > 0
+          ? `<ol class="chat-message-list">
+              ${recentMessages.map(chatMessageRow).join('')}
             </ol>`
-          : '<div class="empty-line">No chat messages.</div>'
+          : '<div class="chat-empty"><strong>No messages yet.</strong><span>Local, party, and clan messages appear here.</span></div>'
       }
-      <div class="social-form-row social-form-row--chat">
-        <select data-social-field="chat-kind" ${connected ? '' : 'disabled'}>
+      </div>
+      <footer class="chat-composer">
+        <select data-social-field="chat-kind" aria-label="Chat channel" ${connected ? '' : 'disabled'}>
           <option value="local_map">Local</option>
           <option value="party">Party</option>
           <option value="clan">Clan</option>
         </select>
-        <input data-social-field="chat-content" type="text" maxlength="500" placeholder="Message" ${connected ? '' : 'disabled'} />
+        <input data-social-field="chat-content" type="text" maxlength="500" placeholder="${connected ? 'Message' : 'Disconnected'}" ${connected ? '' : 'disabled'} />
         <button class="ghost-action" type="button" data-action="social-chat-send" ${connected && !hasPendingOp(state, 'chat.send') ? '' : 'disabled'}>Send</button>
-      </div>
+      </footer>
     </section>
   `;
+}
+
+function chatCountByKind(messages: ClientState['social']['chatMessages'], kind: string): number {
+  return messages.filter((message) => message.channel_kind === kind).length;
+}
+
+function chatMessageRow(message: ClientState['social']['chatMessages'][number]): string {
+  return `
+    <li class="chat-message" data-channel="${escapeHTML(message.channel_kind)}">
+      <div class="chat-message__meta">
+        <span>${escapeHTML(chatChannelLabel(message.channel_kind))}</span>
+        <strong>${escapeHTML(message.sender_name)}</strong>
+        <time datetime="${escapeHTML(message.sent_at)}">${escapeHTML(chatTimeLabel(message.sent_at))}</time>
+      </div>
+      <p>${escapeHTML(message.content)}</p>
+    </li>
+  `;
+}
+
+function chatChannelLabel(kind: string): string {
+  if (kind === 'local_map') {
+    return 'Local';
+  }
+  if (kind === 'party') {
+    return 'Party';
+  }
+  if (kind === 'clan') {
+    return 'Clan';
+  }
+  return kind;
+}
+
+function chatTimeLabel(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '--:--';
+  }
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 export function opsPanel(state: ClientState): string {

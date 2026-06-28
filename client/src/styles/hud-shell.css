@@ -501,6 +501,17 @@ button:disabled {
   overflow: hidden;
 }
 
+.hud-window[data-window-panel="chat"] {
+  height: min(40rem, calc(100dvh - 5rem));
+  min-height: min(32rem, calc(100dvh - 5rem));
+}
+
+.hud-window[data-window-panel="chat"] .hud-window__body {
+  flex: 1 1 auto;
+  display: grid;
+  overflow: hidden;
+}
+
 .hud-window__body > h2:first-child,
 .hud-modal__body > h2:first-child {
   display: none;
