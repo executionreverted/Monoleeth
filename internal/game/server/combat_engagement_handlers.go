@@ -68,7 +68,7 @@ func (runtime *Runtime) handleCombatStartAttack(ctx realtime.CommandContext, req
 
 	now := runtime.clock.Now()
 	state := runtime.startCombatEngagementLocked(ctx.PlayerID, intent.TargetID, defaultCombatEngagementSkillID, now)
-	payload := combatEngagementPayloadFromState(state, "")
+	payload := runtime.combatEngagementPayloadForStateLocked(state, "")
 	sessionID := authSessionID(ctx.SessionID)
 	runtime.queueEventLocked(sessionID, realtime.EventCombatAttackStarted, payload)
 	runtime.queueEventLocked(sessionID, realtime.EventCombatStateSnapshot, payload)
@@ -93,7 +93,7 @@ func (runtime *Runtime) handleCombatStopAttack(ctx realtime.CommandContext, requ
 
 	now := runtime.clock.Now()
 	snapshot := runtime.stopCombatEngagementLocked(ctx.PlayerID, combatStopReasonManual, now)
-	payload := combatEngagementPayloadFromSnapshot(snapshot)
+	payload := runtime.combatEngagementPayloadFromSnapshotLocked(snapshot)
 	sessionID := authSessionID(ctx.SessionID)
 	runtime.queueEventLocked(sessionID, realtime.EventCombatAttackStopped, payload)
 	runtime.queueEventLocked(sessionID, realtime.EventCombatStateSnapshot, payload)
@@ -115,5 +115,5 @@ func (runtime *Runtime) handleCombatState(ctx realtime.CommandContext, request r
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 
-	return marshalPayload(combatEngagementPayloadFromSnapshot(runtime.combatEngagementSnapshotLocked(ctx.PlayerID, runtime.clock.Now())))
+	return marshalPayload(runtime.combatEngagementPayloadLocked(ctx.PlayerID, runtime.clock.Now()))
 }

@@ -164,7 +164,7 @@ func (runtime *Runtime) tickCombatEngagementsLocked(now time.Time) {
 		state.NextFireAt = execution.Combat.CooldownReadyAt
 		state.LastStopReason = ""
 		runtime.activeCombatEngagements[playerID] = state
-		payload := combatEngagementPayloadFromState(state, "")
+		payload := runtime.combatEngagementPayloadForStateLocked(state, "")
 		for _, sessionID := range sessionIDs {
 			runtime.queueEventLocked(sessionID, realtime.EventCombatStateSnapshot, payload)
 		}
@@ -173,7 +173,7 @@ func (runtime *Runtime) tickCombatEngagementsLocked(now time.Time) {
 
 func (runtime *Runtime) queueCombatEngagementStoppedLocked(playerID foundation.PlayerID, sessionIDs []auth.SessionID, reason combatStopReason, now time.Time) {
 	snapshot := runtime.stopCombatEngagementLocked(playerID, reason, now)
-	payload := combatEngagementPayloadFromSnapshot(snapshot)
+	payload := runtime.combatEngagementPayloadFromSnapshotLocked(snapshot)
 	for _, sessionID := range sessionIDs {
 		runtime.queueEventLocked(sessionID, realtime.EventCombatAttackStopped, payload)
 		runtime.queueEventLocked(sessionID, realtime.EventCombatStateSnapshot, payload)
@@ -242,4 +242,20 @@ func combatEngagementPayloadFromSnapshot(snapshot combatEngagementSnapshot) map[
 		NextFireAt:     snapshot.NextFireAt,
 		LastStopReason: snapshot.LastStopReason,
 	}, snapshot.LastStopReason)
+}
+
+func (runtime *Runtime) combatEngagementPayloadLocked(playerID foundation.PlayerID, now time.Time) map[string]any {
+	return runtime.combatEngagementPayloadFromSnapshotLocked(runtime.combatEngagementSnapshotLocked(playerID, now))
+}
+
+func (runtime *Runtime) combatEngagementPayloadForStateLocked(state combatEngagementState, lastStopReason string) map[string]any {
+	payload := combatEngagementPayloadFromState(state, lastStopReason)
+	payload["active_ammo"] = runtime.combatAmmoStatePayloadLocked(state.PlayerID)
+	return payload
+}
+
+func (runtime *Runtime) combatEngagementPayloadFromSnapshotLocked(snapshot combatEngagementSnapshot) map[string]any {
+	payload := combatEngagementPayloadFromSnapshot(snapshot)
+	payload["active_ammo"] = runtime.combatAmmoStatePayloadLocked(snapshot.PlayerID)
+	return payload
 }

@@ -28,6 +28,7 @@ const (
 	OperationCombatStartAttack         Operation = "combat.start_attack"
 	OperationCombatStopAttack          Operation = "combat.stop_attack"
 	OperationCombatState               Operation = "combat.state"
+	OperationCombatSelectAmmo          Operation = "combat.select_ammo"
 	OperationLootPickup                Operation = "loot.pickup"
 	OperationShieldRepairTick          Operation = "repair.shield_tick"
 	OperationDeathRepairQuote          Operation = "death.repair_quote"
@@ -258,6 +259,10 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationCombatState: {
 		Operation:        OperationCombatState,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationCombatSelectAmmo: {
+		Operation:        OperationCombatSelectAmmo,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationLootPickup: {

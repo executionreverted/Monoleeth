@@ -123,6 +123,11 @@ func TestOperationRegistryAcceptsCombatAttackEngagementOperations(t *testing.T) 
 			body: `{"request_id":"request-combat-state","op":"combat.state","payload":{},"client_seq":10,"v":1}`,
 			want: OperationCombatState,
 		},
+		{
+			name: "select ammo",
+			body: `{"request_id":"request-combat-select-ammo","op":"combat.select_ammo","payload":{"family":"laser","item_id":"ammunition_laser_lcb_10"},"client_seq":11,"v":1}`,
+			want: OperationCombatSelectAmmo,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

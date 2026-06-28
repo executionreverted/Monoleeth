@@ -25,6 +25,7 @@ const (
 	CodeNotVisible       Code = "ERR_NOT_VISIBLE"
 	CodeCooldown         Code = "ERR_COOLDOWN"
 	CodeNotEnoughEnergy  Code = "ERR_NOT_ENOUGH_ENERGY"
+	CodeNotEnoughAmmo    Code = "ERR_NOT_ENOUGH_AMMO"
 	CodeNotEnoughCargo   Code = "ERR_NOT_ENOUGH_CARGO"
 	CodeNotEnoughFunds   Code = "ERR_NOT_ENOUGH_FUNDS"
 	CodeRankTooLow       Code = "ERR_RANK_TOO_LOW"

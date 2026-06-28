@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"gameproject/internal/game/auth"
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
@@ -157,6 +158,68 @@ func TestCombatStateReturnsCurrentPublicSnapshot(t *testing.T) {
 	assertCombatEngagementPayloadForTest(t, "combat.state response", payload, true, "entity_training_npc", "")
 }
 
+func TestCombatSelectAmmoRejectsClientAuthoredGameplayTruth(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	resolved := createResolvedRuntimeSession(t, gameServer, "combat-ammo-spoof@example.com", "Combat Ammo Spoof")
+
+	response := combatEngagementGatewayRequest(t, gameServer, resolved, "request-combat-ammo-spoof", realtime.OperationCombatSelectAmmo, map[string]any{
+		"family":            "laser",
+		"item_id":           "ammunition_laser_mcb_50",
+		"quantity":          999,
+		"damage_multiplier": 99,
+	}, 1)
+
+	if !response.HasError || response.Error.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("spoofed combat.select_ammo response = %+v, want %s", response, foundation.CodeInvalidPayload)
+	}
+}
+
+func TestCombatSelectAmmoRequiresOwnedSelectableAmmo(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	resolved := createResolvedRuntimeSession(t, gameServer, "combat-ammo-owned@example.com", "Combat Ammo Owned")
+	gameServer.runtime.itemCatalog["ammunition_laser_mcb_50"] = testStackableDefinition(t, "ammunition_laser_mcb_50", "MCB-50", []economy.TradeFlag{economy.TradeFlagTradeable})
+
+	response := combatEngagementGatewayRequest(t, gameServer, resolved, "request-combat-ammo-missing", realtime.OperationCombatSelectAmmo, map[string]any{
+		"family":  "laser",
+		"item_id": "ammunition_laser_mcb_50",
+	}, 1)
+
+	if !response.HasError || response.Error.Error.Code != foundation.CodeNotEnoughAmmo {
+		t.Fatalf("missing combat.select_ammo response = %+v, want %s", response, foundation.CodeNotEnoughAmmo)
+	}
+}
+
+func TestCombatSelectAmmoStoresServerOwnedSelectionAndQueuesState(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	resolved := createResolvedRuntimeSession(t, gameServer, "combat-ammo-select@example.com", "Combat Ammo Select")
+	definition := testStackableDefinition(t, "ammunition_laser_mcb_50", "MCB-50", []economy.TradeFlag{economy.TradeFlagTradeable})
+	gameServer.runtime.itemCatalog["ammunition_laser_mcb_50"] = definition
+	location, err := economy.NewItemLocation(economy.LocationKindAccountInventory, resolved.PlayerID.String())
+	if err != nil {
+		t.Fatalf("account inventory location: %v", err)
+	}
+	addTestInventoryStack(t, gameServer, resolved.PlayerID, definition, 25, location, "combat-ammo-select")
+
+	response := combatEngagementGatewayRequest(t, gameServer, resolved, "request-combat-ammo-select", realtime.OperationCombatSelectAmmo, map[string]any{
+		"family":  "laser",
+		"item_id": "ammunition_laser_mcb_50",
+	}, 1)
+	if response.HasError {
+		t.Fatalf("valid combat.select_ammo response error = %+v, want success", response.Error)
+	}
+	assertCombatAmmoSelectionPayloadForTest(t, "combat.select_ammo response", response.Response.Payload, "laser", "ammunition_laser_mcb_50", 25, 3)
+
+	events, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationCombatSelectAmmo, resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("post combat.select_ammo events: %v", err)
+	}
+	snapshot := requireEventTypeForTest(t, events, realtime.EventCombatStateSnapshot)
+	assertCombatAmmoSelectionPayloadForTest(t, "combat.select_ammo state snapshot", snapshot.Payload, "laser", "ammunition_laser_mcb_50", 25, 3)
+}
+
 func TestBootstrapIncludesActiveCombatStateSnapshot(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
@@ -260,5 +323,26 @@ func assertCombatEngagementPayloadForTest(t *testing.T, label string, raw json.R
 		if payload.SkillID != defaultCombatEngagementSkillID || payload.StartedAtMS == 0 || payload.NextFireAtMS == 0 {
 			t.Fatalf("%s active payload = %+v, want skill/timing", label, payload)
 		}
+	}
+}
+
+func assertCombatAmmoSelectionPayloadForTest(t *testing.T, label string, raw json.RawMessage, family string, itemID string, quantity int64, multiplier float64) {
+	t.Helper()
+	var payload struct {
+		ActiveAmmo map[string]struct {
+			ItemID           string  `json:"item_id"`
+			Quantity         int64   `json:"quantity"`
+			DamageMultiplier float64 `json:"damage_multiplier"`
+		} `json:"active_ammo"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("decode %s ammo payload: %v", label, err)
+	}
+	selected, ok := payload.ActiveAmmo[family]
+	if !ok {
+		t.Fatalf("%s active_ammo = %+v, missing family %q", label, payload.ActiveAmmo, family)
+	}
+	if selected.ItemID != itemID || selected.Quantity != quantity || selected.DamageMultiplier != multiplier {
+		t.Fatalf("%s selected ammo = %+v, want item=%q quantity=%d multiplier=%.1f", label, selected, itemID, quantity, multiplier)
 	}
 }

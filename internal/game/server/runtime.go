@@ -145,6 +145,7 @@ type Runtime struct {
 	combatLocks             map[foundation.PlayerID]time.Time
 	activeCombatEngagements map[foundation.PlayerID]combatEngagementState
 	lastCombatStopReasons   map[foundation.PlayerID]combatStopReason
+	activeCombatAmmo        map[foundation.PlayerID]map[gamecontent.CombatAmmoFamily]foundation.ItemID
 	shieldRepairTicks       map[foundation.PlayerID]time.Time
 	capacitorRefreshes      map[foundation.PlayerID]time.Time
 
@@ -1393,6 +1394,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		combatLocks:                    make(map[foundation.PlayerID]time.Time),
 		activeCombatEngagements:        make(map[foundation.PlayerID]combatEngagementState),
 		lastCombatStopReasons:          make(map[foundation.PlayerID]combatStopReason),
+		activeCombatAmmo:               make(map[foundation.PlayerID]map[gamecontent.CombatAmmoFamily]foundation.ItemID),
 		shieldRepairTicks:              make(map[foundation.PlayerID]time.Time),
 		capacitorRefreshes:             make(map[foundation.PlayerID]time.Time),
 		Combat:                         combatService,
