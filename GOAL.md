@@ -3,6 +3,21 @@ Bu mesajı aktif goal olarak oluştur ve tüm işler bitene kadar özerk devam e
 Objective:
 Bu projede `AGENTS.md` talimatlarına uyarak, `docs/plans/ui-implementation/` altındaki tüm UI implementation fazlarını sırayla tamamla. Amaç, mail/password hesap sistemiyle başlayan gerçek authenticated game client akışını kurmak ve daha önce implement edilmiş tüm backend oyun feature’larını browser arayüzünden gerçek server state’iyle çalışır hale getirmek.
 
+Current execution overlay (2026-06-28):
+- DarkOrbit-feel vertical slice is active. Preserve the server-authoritative
+  combat stance, NPC return fire, HUD/renderer feedback, and dense early-sector
+  direction already captured in:
+  - `docs/plans/2026-06-28-darkorbit-feel-design.md`
+  - `docs/plans/2026-06-28-darkorbit-feel-implementation.md`
+  - `docs/polish/00-index.md`
+- Kalaazu-derived default content seed is now part of the active scope. Runtime
+  gameplay content should come from the published content DB snapshot. Static Go
+  catalogs may remain only as explicit test/legacy helpers, not production
+  truth. Use these plan docs:
+  - `docs/plans/2026-06-28-kalaazu-db-default-seed-design.md`
+  - `docs/plans/2026-06-28-kalaazu-db-default-seed-implementation.md`
+  - `docs/polish/10-kalaazu-reference-content-source.md`
+
 Çalışma kuralları:
 - Her task/phase öncesi tüm bağlamı tekrar oku ve hafızanı tazele:
   - `AGENTS.md`
