@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -51,6 +52,7 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := server.runtime.ensurePlayerSession(resolved); err != nil {
+		log.Printf("websocket session bootstrap failed player=%s session=%s: %v", resolved.PlayerID, resolved.SessionID, err)
 		writeHTTPError(w, foundation.NewDomainError(foundation.CodeInternal, "Session bootstrap failed.", foundation.WithCause(err)))
 		return
 	}

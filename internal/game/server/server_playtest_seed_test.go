@@ -77,6 +77,42 @@ func TestDevAccountSeedCreatesTwoAccountsWithTargetCredits(t *testing.T) {
 	}
 }
 
+func TestDevAccountSessionBootstrapAfterSeedIsIdempotent(t *testing.T) {
+	gameServer, err := New(Config{
+		AllowedOrigins:      []string{testOrigin},
+		DevMode:             true,
+		DisableAuthAttempts: true,
+		DevAccountSeed:      true,
+		DevAccountPassword:  "dev-password",
+		DevAccountCredits:   100000,
+		ContentRepository:   staticContentRepositoryForTest(),
+	})
+	if err != nil {
+		t.Fatalf("New(dev account seed) error = %v, want nil", err)
+	}
+
+	result, err := gameServer.runtime.Auth.Login(context.Background(), auth.LoginInput{
+		Email:    "pilot1@example.com",
+		Password: "dev-password",
+	})
+	if err != nil {
+		t.Fatalf("Login(dev account) error = %v, want nil", err)
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := gameServer.runtime.ensurePlayerSession(result.Session); err != nil {
+			t.Fatalf("ensurePlayerSession attempt %d error = %v, want nil", attempt+1, err)
+		}
+	}
+	if got := gameServer.runtime.Wallet.Balance(result.Session.PlayerID, economy.CurrencyBucketCredits); got != 100000 {
+		t.Fatalf("credits after repeated bootstrap = %d, want dev seed target 100000", got)
+	}
+	if _, ok := gameServer.runtime.itemCatalog["ammunition_laser_lcb_10"]; ok {
+		if got := inventoryStackQuantityForTest(gameServer, result.Session.PlayerID, "ammunition_laser_lcb_10"); got != 10000 {
+			t.Fatalf("starter ammo after repeated bootstrap = %d, want one seed stack", got)
+		}
+	}
+}
+
 func assertPlaytestSeedState(t *testing.T, gameServer *Server, playerID foundation.PlayerID) {
 	t.Helper()
 
