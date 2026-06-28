@@ -15,6 +15,7 @@ import (
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
+	"gameproject/internal/game/modules"
 	"gameproject/internal/game/progression"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/stats"
@@ -240,13 +241,55 @@ func (runtime *Runtime) effectivePlayerStatsLocked(playerID foundation.PlayerID,
 	if weaponRange <= 0 {
 		weaponRange = state.Stats.WeaponRange
 	}
-	return shipID, effective, stats.CombatStats{
+	combatStats := stats.CombatStats{
 		WeaponDamage:     effective.Combat.WeaponDamage,
 		WeaponRange:      weaponRange,
 		WeaponCooldown:   effective.Combat.WeaponCooldown,
 		WeaponEnergyCost: effective.Combat.WeaponEnergyCost,
 		Accuracy:         1,
-	}, nil
+	}
+	runtime.applyStarterBasicAttackFallbackLocked(&combatStats)
+	return shipID, effective, combatStats, nil
+}
+
+func (runtime *Runtime) applyStarterBasicAttackFallbackLocked(combatStats *stats.CombatStats) {
+	if combatStats == nil || (combatStats.WeaponDamage > 0 && combatStats.WeaponCooldown > 0 && combatStats.WeaponEnergyCost > 0) {
+		return
+	}
+	for _, itemID := range runtime.starterContent.ModuleItemIDs {
+		definition, ok := runtime.ModuleCatalog.Lookup(itemID)
+		if !ok || definition.SlotType != modules.ModuleSlotTypeOffensive {
+			continue
+		}
+		if combatStats.WeaponDamage <= 0 {
+			combatStats.WeaponDamage = starterModuleWeaponDamage(definition)
+		}
+		if combatStats.WeaponCooldown <= 0 {
+			combatStats.WeaponCooldown = starterModuleBasicAttackCooldown(definition)
+		}
+		if combatStats.WeaponEnergyCost <= 0 {
+			combatStats.WeaponEnergyCost = float64(definition.Energy.ActivationCost)
+		}
+		return
+	}
+}
+
+func starterModuleWeaponDamage(definition modules.ModuleDefinition) float64 {
+	for _, modifier := range definition.StatModifiers {
+		if modifier.Stat == modules.StatWeaponDamage {
+			return float64(modifier.Value)
+		}
+	}
+	return 0
+}
+
+func starterModuleBasicAttackCooldown(definition modules.ModuleDefinition) float64 {
+	for _, cooldown := range definition.Cooldowns {
+		if cooldown.Key == modules.CooldownBasicAttack {
+			return float64(cooldown.DurationMS) / 1000
+		}
+	}
+	return 0
 }
 
 func (runtime *Runtime) refreshPlayerCombatStatsPayloadLocked(playerID foundation.PlayerID) error {

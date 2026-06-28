@@ -1032,8 +1032,12 @@ export type WorldFeedbackKind = 'laser' | 'damage' | 'miss' | 'destroyed' | 'loo
 export interface WorldFeedbackEffect {
   id: string;
   kind: WorldFeedbackKind;
+  phase?: 'started' | 'resolved';
+  damageKind?: 'shield' | 'hull' | 'mixed';
   targetID?: string;
+  targetEntityID?: string;
   sourceID?: string;
+  sourceEntityID?: string;
   position?: Vec2;
   sourcePosition?: Vec2;
   amount?: number;
@@ -1043,6 +1047,25 @@ export interface WorldFeedbackEffect {
   quantity?: number;
   createdAt: number;
   expiresAt: number;
+}
+
+export interface CombatEngagementState {
+  active: boolean;
+  targetID: string | null;
+  skillID: string | null;
+  startedAt: number | null;
+  nextFireAt: number | null;
+  lastStopReason: string | null;
+  activeAmmo: Record<string, CombatAmmoState>;
+}
+
+export interface CombatAmmoState {
+  itemID: string;
+  ammoKey?: string;
+  quantity: number;
+  powerMultiplier?: number;
+  fallbackRank?: number;
+  slotbarOrder?: number;
 }
 
 export interface SocialChatMessage {
@@ -1144,6 +1167,7 @@ export interface ClientState {
   knownLoot: Record<string, KnownLootDrop>;
   social: SocialState;
   worldEffects: WorldFeedbackEffect[];
+  combatEngagement: CombatEngagementState;
   pendingCommands: Record<string, PendingCommand>;
   commandLog: LogLine[];
   combatLog: LogLine[];

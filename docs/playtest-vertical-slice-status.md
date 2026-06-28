@@ -151,6 +151,13 @@ canary, and the scanner no-signal canary.
 Focused canaries and repair proof also verified standalone:
 
 ```text
+2026-06-28: Live two-pilot local playtest found a 30-second authenticated
+WebSocket idle disconnect caused by the server read timeout. Commit `3011c783`
+made gameplay sockets idle-safe while keeping bounded writes and slow-client
+disconnect protection. Follow-up browser canaries proved 45 seconds idle plus
+chat send, then a longer idle run stayed connected through minute 6 before the
+human playtest was intentionally stopped.
+2026-06-28: npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:darkorbit-feel passed. It boots a real Postgres content DB, seeds the Kalaazu default snapshot, registers a real account, proves combat.start_attack payload minimization, observes server-driven shot events while moving, kills a default-data Origin NPC, receives server-created loot, picks it up into server cargo, sends combat.state commands during the long kill, portals from 1-1 through 1-2 to 1-3, requires a fresh current-map AOI NPC in 1-3, proves NPC return-fire damage against the real player ship, scans browser/WebSocket/log state for hidden/fake data tokens, and writes output/screenshots/ui-implementation/darkorbit-feel/darkorbit-feel-desktop-1782656914207567c0d35341648.png.
 2026-06-28: npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:playtest-server passed after wiring curated generated-entity PNGs for player, hostile NPC, and loot cache; screenshots below were refreshed.
 2026-06-28: scripts/ci_playtest_artifact_gate.sh passed with curated runtime-safe PNG names and source entity asset guard still green.
 2026-06-28: npm --cache /tmp/gameproject-npm-cache --prefix client run check passed with 34 Vitest files / 371 tests.

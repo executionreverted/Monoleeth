@@ -106,11 +106,11 @@ func TestMVPQuestSeedRowsUseCurrentContentReferences(t *testing.T) {
 	assertNoSeedRow(t, snapshot.NPCTemplates, "void_raider")
 
 	killPirates := requireQuestTemplateRow(t, snapshot, "quest_kill_pirates_r1")
-	if got, want := killPirates.ObjectiveSchema.Objectives[0].Kill.TargetNPCType, "training_drone"; got != want {
+	if got, want := killPirates.ObjectiveSchema.Objectives[0].Kill.TargetNPCType, "streuner"; got != want {
 		t.Fatalf("pirate quest target = %q, want %q", got, want)
 	}
 	killRaiders := requireQuestTemplateRow(t, snapshot, "quest_kill_raiders_r1")
-	if got, want := killRaiders.ObjectiveSchema.Objectives[0].Kill.TargetNPCType, "border_raider_drone"; got != want {
+	if got, want := killRaiders.ObjectiveSchema.Objectives[0].Kill.TargetNPCType, "saimon"; got != want {
 		t.Fatalf("raider quest target = %q, want %q", got, want)
 	}
 	craftEnergy := requireQuestTemplateRow(t, snapshot, "quest_craft_energy_cells_r1")

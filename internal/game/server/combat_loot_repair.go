@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"gameproject/internal/game/auth"
 	"gameproject/internal/game/combat"
 	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/economy"
@@ -71,67 +72,105 @@ func runtimeShipRepairIdempotencyKey(playerID foundation.PlayerID, shipID founda
 	return foundation.ShipRepairIdempotencyKey(shipID, repairReference)
 }
 
-func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
-	if err := rejectTrustedPayload(request.Payload); err != nil {
-		return nil, err
-	}
-	intent, err := decodeCombatUseSkillIntent(request.Payload)
-	if err != nil {
-		return nil, err
-	}
-	if intent.SkillID != runtime.combatRules.BasicLaserSkillID {
-		return nil, foundation.NewDomainError(foundation.CodeInvalidPayload, "Unsupported combat skill.")
-	}
+type runtimeBasicLaserInput struct {
+	RequestID          foundation.RequestID
+	PlayerID           foundation.PlayerID
+	TargetID           world.EntityID
+	SkillID            string
+	SessionIDs         []auth.SessionID
+	QueueShotLifecycle bool
+}
 
-	runtime.mu.Lock()
-	defer runtime.mu.Unlock()
+type runtimeBasicLaserResult struct {
+	Combat              combat.BasicAttackResult
+	Ammo                runtimeCombatAmmoUse
+	PlayerState         playerRuntimeState
+	Drops               []loot.Drop
+	ProgressionSnapshot *progressionSnapshotPayload
+	TargetKilled        bool
+}
 
-	if err := runtime.validateShipCanActLocked(ctx.PlayerID); err != nil {
-		return nil, err
+func (runtime *Runtime) executeBasicLaserLocked(input runtimeBasicLaserInput) (runtimeBasicLaserResult, error) {
+	if input.SkillID == "" {
+		input.SkillID = runtime.combatRules.BasicLaserSkillID
 	}
-	attacker, err := runtime.syncPlayerCombatActorLocked(ctx.PlayerID)
+	if input.SkillID != runtime.combatRules.BasicLaserSkillID {
+		return runtimeBasicLaserResult{}, foundation.NewDomainError(foundation.CodeInvalidPayload, "Unsupported combat skill.")
+	}
+	if len(input.SessionIDs) == 0 {
+		input.SessionIDs = runtime.sessionIDsForPlayerLocked(input.PlayerID, "")
+	}
+	if err := runtime.validateShipCanActLocked(input.PlayerID); err != nil {
+		return runtimeBasicLaserResult{}, err
+	}
+	attacker, err := runtime.syncPlayerCombatActorLocked(input.PlayerID)
 	if err != nil {
-		return nil, domainErrorForRuntime(err)
+		return runtimeBasicLaserResult{}, domainErrorForRuntime(err)
 	}
-	if err := runtime.syncWorldCombatActorLocked(ctx.PlayerID, intent.TargetID); err != nil {
-		return nil, domainErrorForRuntime(err)
+	if err := runtime.syncWorldCombatActorLocked(input.PlayerID, input.TargetID); err != nil {
+		return runtimeBasicLaserResult{}, domainErrorForRuntime(err)
 	}
-	viewer, err := runtime.viewerForPlayerLocked(ctx.PlayerID)
+	viewer, err := runtime.viewerForPlayerLocked(input.PlayerID)
 	if err != nil {
-		return nil, domainErrorForRuntime(err)
+		return runtimeBasicLaserResult{}, domainErrorForRuntime(err)
 	}
-	if !runtime.entityVisibleToPlayerLocked(ctx.PlayerID, intent.TargetID) {
-		return nil, foundation.NewDomainError(foundation.CodeNotVisible, "Target is not visible.")
+	if !runtime.entityVisibleToPlayerLocked(input.PlayerID, input.TargetID) {
+		return runtimeBasicLaserResult{}, foundation.NewDomainError(foundation.CodeNotVisible, "Target is not visible.")
 	}
 	attackerBefore := attacker
-	targetBefore, ok := runtime.Combat.Actor(intent.TargetID)
+	targetBefore, ok := runtime.Combat.Actor(input.TargetID)
 	if !ok {
-		return nil, domainErrorForRuntime(worker.ErrUnknownEntity)
+		return runtimeBasicLaserResult{}, domainErrorForRuntime(worker.ErrUnknownEntity)
 	}
 	restoreAttackActors := func() {
 		_ = runtime.Combat.UpsertActor(attackerBefore)
 		_ = runtime.Combat.UpsertActor(targetBefore)
 	}
 
-	result, err := runtime.Combat.ExecuteBasicAttack(combat.BasicAttackInput{
+	attackInput := combat.BasicAttackInput{
 		AttackerID: attacker.EntityID,
-		TargetID:   intent.TargetID,
+		TargetID:   input.TargetID,
 		Viewer:     &viewer,
 		Policy:     runtime.basicAttackPolicyLocked(),
-	})
+	}
+	if err := runtime.Combat.CanBasicAttack(attackInput); err != nil {
+		return runtimeBasicLaserResult{}, domainErrorForCombat(err)
+	}
+	ammo, err := runtime.resolveLaserAmmoForAttackLocked(input.PlayerID)
 	if err != nil {
-		return nil, domainErrorForCombat(err)
+		return runtimeBasicLaserResult{}, err
+	}
+	ammo, err = runtime.consumeCombatAmmoLocked(input, ammo)
+	if err != nil {
+		return runtimeBasicLaserResult{}, err
+	}
+	attackInput.DamageMultiplier = ammo.Definition.DamageMultiplier
+	attackInput.AmmoItemID = ammo.Definition.ItemID
+	attackInput.AmmoFallback = ammo.Fallback
+
+	result, err := runtime.Combat.ExecuteBasicAttack(attackInput)
+	if err != nil {
+		return runtimeBasicLaserResult{}, domainErrorForCombat(err)
+	}
+	if input.QueueShotLifecycle {
+		for _, sessionID := range input.SessionIDs {
+			runtime.queueEventLocked(sessionID, realtime.EventCombatShotStarted, map[string]any{
+				"skill_id":  input.SkillID,
+				"target_id": input.TargetID.String(),
+				"ammo":      ammo.payload(),
+			})
+		}
 	}
 	combatLockedAt := runtime.clock.Now()
-	runtime.refreshCombatLockForActorLocked(ctx.PlayerID, combatLockedAt)
+	runtime.refreshCombatLockForActorLocked(input.PlayerID, combatLockedAt)
 	runtime.refreshCombatLockForActorLocked(result.Target.PlayerID, combatLockedAt)
 
 	var drops []loot.Drop
 	lethalPlayerDeath := isLethalPlayerCombatResult(targetBefore, result)
 	if lethalPlayerDeath {
-		playerDeathDrops, err := runtime.processLethalPVPDeathLocked(request.RequestID, result.Attacker, result.Target)
+		playerDeathDrops, err := runtime.processLethalPVPDeathLocked(input.RequestID, result.Attacker, result.Target)
 		if err != nil {
-			return nil, domainErrorForRuntime(err)
+			return runtimeBasicLaserResult{}, domainErrorForRuntime(err)
 		}
 		drops = append(drops, playerDeathDrops...)
 	}
@@ -139,15 +178,15 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 	var questUpdates []quests.PlayerQuest
 	var socialContributionSnapshots []social.ContributionSnapshot
 	if result.KillEvent != nil {
-		instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
+		instance, _, err := runtime.activeMapInstanceLocked(input.PlayerID)
 		if err != nil {
 			restoreAttackActors()
-			return nil, domainErrorForRuntime(err)
+			return runtimeBasicLaserResult{}, domainErrorForRuntime(err)
 		}
 		lootTable, err := runtime.selectNPCKillLootTableForInstanceLocked(instance, *result.KillEvent)
 		if err != nil {
 			restoreAttackActors()
-			return nil, domainErrorForRuntime(err)
+			return runtimeBasicLaserResult{}, domainErrorForRuntime(err)
 		}
 		if err := runtime.submitWorkerCommandAndRecordMetricsLocked(instance, worker.MarkEnemyKilledCommand{
 			Definition:  instance.Definition,
@@ -155,17 +194,17 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 			KilledAt:    result.KillEvent.KilledAt,
 		}); err != nil {
 			restoreAttackActors()
-			return nil, domainErrorForRuntime(err)
+			return runtimeBasicLaserResult{}, domainErrorForRuntime(err)
 		}
 		instance.HiddenEntities[result.KillEvent.NPCEntityID] = true
 
 		if updated, err := runtime.Quest.ConsumeCombatNPCKilled(quests.CombatNPCKilledInput{
-			EventID:          foundation.EventID("quest-combat-" + request.RequestID.String()),
+			EventID:          foundation.EventID("quest-combat-" + input.RequestID.String()),
 			ProgressEventKey: quests.QuestProgressEventKey("combat.npc_killed:" + result.KillEvent.NPCEntityID.String()),
-			PlayerID:         ctx.PlayerID,
+			PlayerID:         input.PlayerID,
 			NPCType:          result.KillEvent.NPCType,
 		}); err != nil {
-			return nil, domainErrorForQuest(err)
+			return runtimeBasicLaserResult{}, domainErrorForQuest(err)
 		} else {
 			questUpdates = updated
 		}
@@ -175,48 +214,53 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 		}
 		created, err := runtime.Loot.CreateDropsForNPCKill(*result.KillEvent, lootTable)
 		if err != nil {
-			return nil, domainErrorForRuntime(err)
+			return runtimeBasicLaserResult{}, domainErrorForRuntime(err)
 		}
 		drops = created.Drops
 		for _, drop := range drops {
 			if err := runtime.insertLootDropEntityLocked(drop); err != nil {
-				return nil, domainErrorForRuntime(err)
+				return runtimeBasicLaserResult{}, domainErrorForRuntime(err)
 			}
 		}
 		snapshots, err := runtime.recordSocialNPCKillContributionsLocked(*result.KillEvent, result.Target.Contributions)
 		if err != nil {
-			return nil, domainErrorForRuntime(err)
+			return runtimeBasicLaserResult{}, domainErrorForRuntime(err)
 		}
 		socialContributionSnapshots = snapshots
 	}
 
-	state, ok := runtime.applyCombatActorToPlayerShipLocked(ctx.PlayerID, result.Attacker)
+	state, ok := runtime.applyCombatActorToPlayerShipLocked(input.PlayerID, result.Attacker)
 	if !ok {
-		return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
+		return runtimeBasicLaserResult{}, domainErrorForRuntime(worker.ErrUnknownPlayer)
 	}
 
-	sessionID := authSessionID(ctx.SessionID)
-	runtime.queueEventLocked(sessionID, realtime.EventPlayerSnapshot, state.playerSnapshot())
-	runtime.queueEventLocked(sessionID, realtime.EventShipSnapshot, state.Ship)
-	runtime.queueEventLocked(sessionID, realtime.EventCombatCooldownStarted, map[string]any{
-		"skill_id":             intent.SkillID,
-		"target_id":            intent.TargetID.String(),
-		"cooldown_ready_at_ms": result.CooldownReadyAt.UTC().UnixMilli(),
-	})
-	if result.Hit {
-		runtime.queueEventLocked(sessionID, realtime.EventCombatDamage, map[string]any{
-			"target_id":     intent.TargetID.String(),
-			"amount":        roundCombatValue(result.Damage),
-			"shield_amount": roundCombatValue(result.ShieldDamage),
-			"hull_amount":   roundCombatValue(result.HPDamage),
+	for _, sessionID := range input.SessionIDs {
+		runtime.queueEventLocked(sessionID, realtime.EventInventorySnapshot, runtime.inventorySnapshotLocked(input.PlayerID))
+		runtime.queueEventLocked(sessionID, realtime.EventPlayerSnapshot, state.playerSnapshot())
+		runtime.queueEventLocked(sessionID, realtime.EventShipSnapshot, state.Ship)
+		runtime.queueEventLocked(sessionID, realtime.EventCombatCooldownStarted, map[string]any{
+			"skill_id":             input.SkillID,
+			"target_id":            input.TargetID.String(),
+			"cooldown_ready_at_ms": result.CooldownReadyAt.UTC().UnixMilli(),
+			"ammo":                 ammo.payload(),
 		})
-	} else {
-		runtime.queueEventLocked(sessionID, realtime.EventCombatMiss, map[string]any{
-			"target_id": intent.TargetID.String(),
-		})
+		if result.Hit {
+			runtime.queueEventLocked(sessionID, realtime.EventCombatDamage, map[string]any{
+				"target_id":     input.TargetID.String(),
+				"amount":        roundCombatValue(result.Damage),
+				"shield_amount": roundCombatValue(result.ShieldDamage),
+				"hull_amount":   roundCombatValue(result.HPDamage),
+				"ammo":          ammo.payload(),
+			})
+		} else {
+			runtime.queueEventLocked(sessionID, realtime.EventCombatMiss, map[string]any{
+				"target_id": input.TargetID.String(),
+				"ammo":      ammo.payload(),
+			})
+		}
+		runtime.queueTargetUpdatedLocked(sessionID, result.Target)
 	}
-	runtime.queueTargetUpdatedLocked(sessionID, result.Target)
-	if result.Target.Type == world.EntityTypePlayer && !result.Target.PlayerID.IsZero() && result.Target.PlayerID != ctx.PlayerID {
+	if result.Target.Type == world.EntityTypePlayer && !result.Target.PlayerID.IsZero() && result.Target.PlayerID != input.PlayerID {
 		if result.Hit {
 			runtime.queueEventToPlayerSessionsLocked(result.Target.PlayerID, realtime.EventCombatDamage, map[string]any{
 				"target_id":     result.Target.EntityID.String(),
@@ -232,7 +276,7 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 		if !lethalPlayerDeath {
 			targetState, ok := runtime.applyCombatActorToPlayerShipLocked(result.Target.PlayerID, result.Target)
 			if !ok {
-				return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
+				return runtimeBasicLaserResult{}, domainErrorForRuntime(worker.ErrUnknownPlayer)
 			}
 			runtime.queueEventToPlayerSessionsLocked(result.Target.PlayerID, realtime.EventPlayerSnapshot, targetState.playerSnapshot())
 			runtime.queueEventToPlayerSessionsLocked(result.Target.PlayerID, realtime.EventShipSnapshot, targetState.Ship)
@@ -240,45 +284,96 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 		runtime.queueTargetUpdatedToPlayerSessionsLocked(result.Target.PlayerID, result.Target)
 	}
 	if result.KillEvent != nil {
-		runtime.queueEventLocked(sessionID, realtime.EventCombatNPCKilled, map[string]any{
-			"entity_id": result.KillEvent.NPCEntityID.String(),
-			"npc_type":  result.KillEvent.NPCType,
-		})
-		runtime.queueQuestProgressEventsLocked(sessionID, questUpdates)
-		if progressionSnapshot != nil {
-			runtime.queueEventLocked(sessionID, realtime.EventProgressionSnapshot, *progressionSnapshot)
+		for _, sessionID := range input.SessionIDs {
+			runtime.queueEventLocked(sessionID, realtime.EventCombatNPCKilled, map[string]any{
+				"entity_id": result.KillEvent.NPCEntityID.String(),
+				"npc_type":  result.KillEvent.NPCType,
+			})
+			runtime.queueQuestProgressEventsLocked(sessionID, questUpdates)
+			if progressionSnapshot != nil {
+				runtime.queueEventLocked(sessionID, realtime.EventProgressionSnapshot, *progressionSnapshot)
+			}
+			for _, drop := range drops {
+				runtime.queueEventLocked(sessionID, realtime.EventLootCreated, lootDropPayload(drop, runtime.clock.Now()))
+			}
 		}
 		runtime.queueSocialContributionSnapshotsLocked(socialContributionSnapshots)
-		for _, drop := range drops {
-			runtime.queueEventLocked(sessionID, realtime.EventLootCreated, lootDropPayload(drop, runtime.clock.Now()))
-		}
 	}
 	if lethalPlayerDeath {
 		for _, drop := range drops {
-			runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventLootCreated, lootDropPayload(drop, runtime.clock.Now()))
+			runtime.queueEventToPlayerSessionsLocked(input.PlayerID, realtime.EventLootCreated, lootDropPayload(drop, runtime.clock.Now()))
 		}
 	}
 	targetKilled := result.Killed || lethalPlayerDeath
+	if input.QueueShotLifecycle {
+		for _, sessionID := range input.SessionIDs {
+			runtime.queueEventLocked(sessionID, realtime.EventCombatShotResolved, map[string]any{
+				"skill_id":             input.SkillID,
+				"target_id":            input.TargetID.String(),
+				"hit":                  result.Hit,
+				"amount":               roundCombatValue(result.Damage),
+				"killed":               targetKilled,
+				"cooldown_ready_at_ms": result.CooldownReadyAt.UTC().UnixMilli(),
+				"ammo":                 ammo.payload(),
+			})
+		}
+	}
+	return runtimeBasicLaserResult{
+		Combat:              result,
+		Ammo:                ammo,
+		PlayerState:         state,
+		Drops:               drops,
+		ProgressionSnapshot: progressionSnapshot,
+		TargetKilled:        targetKilled,
+	}, nil
+}
+
+func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	intent, err := decodeCombatUseSkillIntent(request.Payload)
+	if err != nil {
+		return nil, err
+	}
+	if intent.SkillID != runtime.combatRules.BasicLaserSkillID {
+		return nil, foundation.NewDomainError(foundation.CodeInvalidPayload, "Unsupported combat skill.")
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	execution, err := runtime.executeBasicLaserLocked(runtimeBasicLaserInput{
+		RequestID:  request.RequestID,
+		PlayerID:   ctx.PlayerID,
+		TargetID:   intent.TargetID,
+		SkillID:    intent.SkillID,
+		SessionIDs: []auth.SessionID{authSessionID(ctx.SessionID)},
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	response := map[string]any{
 		"accepted":             true,
 		"skill_id":             intent.SkillID,
 		"target_id":            intent.TargetID.String(),
-		"hit":                  result.Hit,
-		"amount":               roundCombatValue(result.Damage),
-		"killed":               targetKilled,
-		"cooldown_ready_at_ms": result.CooldownReadyAt.UTC().UnixMilli(),
-		"ship":                 state.Ship,
-		"player":               state.playerSnapshot(),
+		"hit":                  execution.Combat.Hit,
+		"amount":               roundCombatValue(execution.Combat.Damage),
+		"killed":               execution.TargetKilled,
+		"cooldown_ready_at_ms": execution.Combat.CooldownReadyAt.UTC().UnixMilli(),
+		"ship":                 execution.PlayerState.Ship,
+		"player":               execution.PlayerState.playerSnapshot(),
+		"ammo":                 execution.Ammo.payload(),
 	}
-	if targetStatus := combatStatusFromActor(result.Target); targetStatus != nil {
+	if targetStatus := combatStatusFromActor(execution.Combat.Target); targetStatus != nil {
 		response["target"] = targetStatus
 	}
-	if len(drops) > 0 {
-		response["drops"] = lootDropPayloads(drops, runtime.clock.Now())
+	if len(execution.Drops) > 0 {
+		response["drops"] = lootDropPayloads(execution.Drops, runtime.clock.Now())
 	}
-	if progressionSnapshot != nil {
-		response["progression"] = *progressionSnapshot
+	if execution.ProgressionSnapshot != nil {
+		response["progression"] = *execution.ProgressionSnapshot
 	}
 	return marshalPayload(response)
 }

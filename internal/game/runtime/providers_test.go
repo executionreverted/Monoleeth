@@ -107,6 +107,63 @@ func TestStatInputProviderBuildsShipAndEquippedModuleStats(t *testing.T) {
 	assertFloat(t, got.Combat.WeaponCooldown, 1.2)
 }
 
+func TestStatInputProviderAppliesSpeedModuleStats(t *testing.T) {
+	shipCatalog := mustShipCatalog(t)
+	speedModule := modules.ModuleDefinition{
+		Source: catalog.VersionedDefinition{
+			DefinitionID: "equipment_generator_speed_g3n_7900",
+			Version:      modules.ModuleCatalogVersion,
+		},
+		ItemID:               "equipment_generator_speed_g3n_7900",
+		Name:                 "G3N-7900",
+		Category:             modules.ModuleCategoryDefensive,
+		SlotType:             modules.ModuleSlotTypeDefensive,
+		Tier:                 1,
+		Rarity:               economy.ItemRarityCommon,
+		RequiredRank:         1,
+		StatModifiers:        []modules.StatModifier{{Stat: modules.StatSpeed, Kind: modules.StatModifierFlat, Value: 10}},
+		Durability:           modules.DurabilityProfile{Max: 100},
+		TradeFlags:           []economy.TradeFlag{economy.TradeFlagTradeable, economy.TradeFlagDestroyable},
+		BindRules:            []economy.BindRule{economy.BindRuleOnEquip},
+		CompatibleSlotTypes:  []modules.ModuleSlotType{modules.ModuleSlotTypeDefensive},
+		CompatibleCategories: []modules.ModuleCategory{modules.ModuleCategoryDefensive},
+	}
+	moduleCatalog, err := modules.NewCatalog([]modules.ModuleDefinition{speedModule})
+	if err != nil {
+		t.Fatalf("NewCatalog(speed module) error = %v, want nil", err)
+	}
+	loadout := modules.NewInMemoryLoadoutStore()
+	playerID := foundation.PlayerID("player-1")
+	shipID := ships.ShipIDStarter
+
+	putRuntimeModuleItem(t, loadout, "speed-instance-1", "equipment_generator_speed_g3n_7900", playerID, 100)
+	if err := loadout.ReplaceEquippedModules(modules.ReplaceEquippedModulesInput{
+		PlayerID: playerID,
+		ShipID:   shipID,
+		Equipped: []modules.EquippedModule{{
+			PlayerID:       playerID,
+			ShipID:         shipID,
+			SlotID:         modules.ModuleSlotDefensive1,
+			ItemInstanceID: "speed-instance-1",
+			EquippedAt:     time.Date(2026, 6, 28, 16, 0, 0, 0, time.UTC),
+		}},
+	}); err != nil {
+		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
+	}
+
+	provider, err := NewStatInputProvider(shipCatalog, moduleCatalog, loadout)
+	if err != nil {
+		t.Fatalf("NewStatInputProvider() error = %v, want nil", err)
+	}
+	input, err := provider.BuildStatsInput(stats.NewStatSubject(playerID, shipID))
+	if err != nil {
+		t.Fatalf("BuildStatsInput() error = %v, want nil", err)
+	}
+	got := stats.AggregateStats(input.AggregationInput())
+
+	assertFloat(t, got.Core.Speed, 110)
+}
+
 func TestStatInputProviderBuildsScannerAndRadarStats(t *testing.T) {
 	shipCatalog := mustShipCatalog(t)
 	moduleCatalog := modules.MustMVPCatalog()

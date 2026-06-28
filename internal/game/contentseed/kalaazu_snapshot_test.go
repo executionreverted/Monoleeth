@@ -1,0 +1,233 @@
+package contentseed
+
+import (
+	"encoding/json"
+	"testing"
+
+	"gameproject/internal/game/content"
+	"gameproject/internal/game/ships"
+	"gameproject/internal/game/world"
+	worldmaps "gameproject/internal/game/world/maps"
+)
+
+func TestBuildMVPSnapshotUsesKalaazuStarterMapAndNPCRows(t *testing.T) {
+	snapshot, err := BuildMVPSnapshot(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("BuildMVPSnapshot() error = %v, want nil", err)
+	}
+
+	if got, want := len(snapshot.Maps), 3; got != want {
+		t.Fatalf("map rows = %d, want %d", got, want)
+	}
+	if got, want := len(snapshot.NPCTemplates), 11; got != want {
+		t.Fatalf("npc template rows = %d, want %d", got, want)
+	}
+	if got, want := len(snapshot.EnemyPools), 11; got != want {
+		t.Fatalf("enemy pool rows = %d, want %d", got, want)
+	}
+	if len(snapshot.MapPortals) == 0 {
+		t.Fatal("map portal rows empty, want Kalaazu portal graph")
+	}
+	if !hasSeedRow(snapshot.Items, "ammunition_laser_lcb_10") {
+		t.Fatal("ammunition_laser_lcb_10 row missing, want Kalaazu item seed appended")
+	}
+	if !hasSeedRow(snapshot.Modules, "equipment_weapon_laser_lf_1") {
+		t.Fatal("equipment_weapon_laser_lf_1 row missing, want Kalaazu module seed appended")
+	}
+	if !hasSeedRow(snapshot.Ships, "ship_goliath") {
+		t.Fatal("ship_goliath row missing, want Kalaazu ship seed appended")
+	}
+	if !hasSeedRow(snapshot.ShopProducts, "product_ship_goliath") {
+		t.Fatal("product_ship_goliath row missing, want Kalaazu shop seed")
+	}
+	if hasSeedRow(snapshot.ShopProducts, "product_laser_lens") {
+		t.Fatal("product_laser_lens row present, want default snapshot shop products fully Kalaazu-derived")
+	}
+
+	starter := requireSeedMapRow(t, snapshot.Maps, "map_1_1")
+	if starter.PublicMapKey != "1-1" || starter.Bounds.MaxX != 20800 || starter.Bounds.MaxY != 12800 {
+		t.Fatalf("starter map = %+v, want Kalaazu 1-1 bounds", starter)
+	}
+
+	streuner := requireSeedNPCTemplateRow(t, snapshot.NPCTemplates, "map_1_1", "streuner")
+	if streuner.HPMax != 800 || streuner.ShieldMax != 400 || streuner.WeaponDamage != 15 {
+		t.Fatalf("streuner template = %+v, want Kalaazu stats", streuner)
+	}
+	saimonPool := requireSeedEnemyPoolRow(t, snapshot.EnemyPools, "map_1_3", "saimon")
+	if saimonPool.MapMaxAlive != 98 || saimonPool.PoolMaxAlive != 12 || saimonPool.InitialAlive != 4 {
+		t.Fatalf("saimon pool = %+v, want Kalaazu map total 98 with amount 30 scaled to 12/4", saimonPool)
+	}
+	starterPool := requireSeedEnemyPoolRow(t, snapshot.EnemyPools, "map_1_1", "streuner")
+	starterConfig := requireStarterConfigRow(t, snapshot.StarterConfigs)
+	if starterConfig.ShipID != "starter" || starterConfig.ShipDisplayName != "Phoenix" {
+		t.Fatalf("starter ship = %q/%q, want starter contract with Phoenix display", starterConfig.ShipID, starterConfig.ShipDisplayName)
+	}
+	if len(starterConfig.WorldSeeds) != 1 ||
+		starterConfig.WorldSeeds[0].MapID != starterPool.MapID ||
+		starterConfig.WorldSeeds[0].EnemyPoolID != starterPool.EnemyPoolID {
+		t.Fatalf("starter world seeds = %+v, want Kalaazu starter pool %+v", starterConfig.WorldSeeds, starterPool)
+	}
+	scannerConfig := requireScannerConfigRow(t, snapshot.ScannerConfigs)
+	if string(scannerConfig.StaticSeed) != "kalaazu_scanner_seed_v1" ||
+		scannerConfig.CandidateOptions.ProfileVersion != "kalaazu_scanner_default_v1" ||
+		len(scannerConfig.MapProfiles) != 3 ||
+		scannerConfig.MapProfiles[0].MapID != "map_1_1" ||
+		scannerConfig.MapProfiles[0].SpawnBudget != 4 {
+		t.Fatalf("scanner config = %+v, want Kalaazu scanner seed over starter maps", scannerConfig)
+	}
+	routePolicy := requireRoutePolicyRow(t, snapshot.RoutePolicies)
+	if len(routePolicy.RouteableItemIDs) != 1 || routePolicy.RouteableItemIDs[0] != "refined_alloy" {
+		t.Fatalf("route policy routeable items = %+v, want Kalaazu-projected refined_alloy", routePolicy.RouteableItemIDs)
+	}
+
+	goliath := requireSeedShipRow(t, snapshot.Ships, "ship_goliath")
+	if goliath.BaseStats.HP != 256000 || goliath.Slots.Offensive != 15 || goliath.Slots.Defensive != 15 {
+		t.Fatalf("goliath = %+v, want Kalaazu ship stats", goliath)
+	}
+	starterShip := requireSeedShipRow(t, snapshot.Ships, "starter")
+	if starterShip.BaseStats.HP != 4000 || starterShip.BaseStats.Speed != 320 || starterShip.Slots.Offensive != 1 {
+		t.Fatalf("starter ship = %+v, want Kalaazu Phoenix stats on starter contract", starterShip)
+	}
+}
+
+func requireStarterConfigRow(t *testing.T, rows []content.SnapshotRow) content.StarterContent {
+	t.Helper()
+	for _, row := range rows {
+		if row.ContentID != "starter_config" {
+			continue
+		}
+		var starter content.StarterContent
+		if err := json.Unmarshal(row.DataJSON, &starter); err != nil {
+			t.Fatalf("starter config row %q json error = %v", row.ContentID, err)
+		}
+		return starter
+	}
+	t.Fatal("starter config row missing")
+	return content.StarterContent{}
+}
+
+func requireScannerConfigRow(t *testing.T, rows []content.SnapshotRow) content.ScannerContent {
+	t.Helper()
+	for _, row := range rows {
+		if row.ContentID != "scanner_config" {
+			continue
+		}
+		var scanner content.ScannerContent
+		if err := json.Unmarshal(row.DataJSON, &scanner); err != nil {
+			t.Fatalf("scanner config row %q json error = %v", row.ContentID, err)
+		}
+		return scanner
+	}
+	t.Fatal("scanner config row missing")
+	return content.ScannerContent{}
+}
+
+func requireRoutePolicyRow(t *testing.T, rows []content.SnapshotRow) content.RouteContent {
+	t.Helper()
+	for _, row := range rows {
+		if row.ContentID != "route_policy" {
+			continue
+		}
+		var route content.RouteContent
+		if err := json.Unmarshal(row.DataJSON, &route); err != nil {
+			t.Fatalf("route policy row %q json error = %v", row.ContentID, err)
+		}
+		return route
+	}
+	t.Fatal("route policy row missing")
+	return content.RouteContent{}
+}
+
+func requireSeedMapRow(t *testing.T, rows []content.SnapshotRow, contentID content.ContentID) seedMapRow {
+	t.Helper()
+	for _, row := range rows {
+		if row.ContentID != contentID {
+			continue
+		}
+		var decoded seedMapRow
+		if err := json.Unmarshal(row.DataJSON, &decoded); err != nil {
+			t.Fatalf("map row %q json error = %v", row.ContentID, err)
+		}
+		return decoded
+	}
+	t.Fatalf("map row %q missing", contentID)
+	return seedMapRow{}
+}
+
+func requireSeedNPCTemplateRow(t *testing.T, rows []content.SnapshotRow, mapID worldmaps.MapID, npcType string) seedNPCTemplateRow {
+	t.Helper()
+	for _, row := range rows {
+		var decoded seedNPCTemplateRow
+		if err := json.Unmarshal(row.DataJSON, &decoded); err != nil {
+			t.Fatalf("npc template row %q json error = %v", row.ContentID, err)
+		}
+		if decoded.MapID == mapID && decoded.NPCType == npcType {
+			return decoded
+		}
+	}
+	t.Fatalf("npc template %s/%s missing", mapID, npcType)
+	return seedNPCTemplateRow{}
+}
+
+func requireSeedEnemyPoolRow(t *testing.T, rows []content.SnapshotRow, mapID worldmaps.MapID, npcType string) seedEnemyPoolRow {
+	t.Helper()
+	for _, row := range rows {
+		var decoded seedEnemyPoolRow
+		if err := json.Unmarshal(row.DataJSON, &decoded); err != nil {
+			t.Fatalf("enemy pool row %q json error = %v", row.ContentID, err)
+		}
+		if decoded.MapID == mapID && decoded.NPCType == npcType {
+			return decoded
+		}
+	}
+	t.Fatalf("enemy pool %s/%s missing", mapID, npcType)
+	return seedEnemyPoolRow{}
+}
+
+func requireSeedShipRow(t *testing.T, rows []content.SnapshotRow, contentID content.ContentID) ships.ShipDefinition {
+	t.Helper()
+	for _, row := range rows {
+		if row.ContentID != contentID {
+			continue
+		}
+		var definition ships.ShipDefinition
+		if err := json.Unmarshal(row.DataJSON, &definition); err != nil {
+			t.Fatalf("ship row %q json error = %v", row.ContentID, err)
+		}
+		return definition
+	}
+	t.Fatalf("ship row %q missing", contentID)
+	return ships.ShipDefinition{}
+}
+
+func hasSeedRow(rows []content.SnapshotRow, contentID content.ContentID) bool {
+	for _, row := range rows {
+		if row.ContentID == contentID {
+			return true
+		}
+	}
+	return false
+}
+
+type seedMapRow struct {
+	MapID        worldmaps.MapID        `json:"map_id"`
+	PublicMapKey worldmaps.PublicMapKey `json:"public_map_key"`
+	Bounds       worldmaps.Bounds       `json:"bounds"`
+}
+
+type seedNPCTemplateRow struct {
+	MapID        worldmaps.MapID `json:"map_id"`
+	NPCType      string          `json:"npc_type"`
+	HPMax        float64         `json:"hp_max"`
+	ShieldMax    float64         `json:"shield_max"`
+	WeaponDamage float64         `json:"weapon_damage"`
+}
+
+type seedEnemyPoolRow struct {
+	MapID        worldmaps.MapID       `json:"map_id"`
+	EnemyPoolID  worldmaps.EnemyPoolID `json:"enemy_pool_id"`
+	NPCType      string                `json:"npc_type"`
+	MapMaxAlive  int                   `json:"map_max_alive"`
+	PoolMaxAlive int                   `json:"pool_max_alive"`
+	InitialAlive int                   `json:"initial_alive"`
+}

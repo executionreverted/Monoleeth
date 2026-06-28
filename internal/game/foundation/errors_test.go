@@ -25,6 +25,7 @@ func TestErrorCodesStringifyAndSerializePredictably(t *testing.T) {
 		{name: "not visible", code: CodeNotVisible, want: "ERR_NOT_VISIBLE"},
 		{name: "cooldown", code: CodeCooldown, want: "ERR_COOLDOWN"},
 		{name: "not enough energy", code: CodeNotEnoughEnergy, want: "ERR_NOT_ENOUGH_ENERGY"},
+		{name: "not enough ammo", code: CodeNotEnoughAmmo, want: "ERR_NOT_ENOUGH_AMMO"},
 		{name: "not enough cargo", code: CodeNotEnoughCargo, want: "ERR_NOT_ENOUGH_CARGO"},
 		{name: "not enough funds", code: CodeNotEnoughFunds, want: "ERR_NOT_ENOUGH_FUNDS"},
 		{name: "rank too low", code: CodeRankTooLow, want: "ERR_RANK_TOO_LOW"},

@@ -10,8 +10,8 @@ import { planetsPanel } from './hud-render-planets';
 import { topbarDangerText, topbarLocationText } from './hud-topbar';
 import { actionBar, baseWindowDefinitions, intelPanel, logPanel, modalDefinition, movementEtaPanel, opsPanel, quickActionStates, shipPanel, statusPanel, systemsPanel, targetPanel, windowDefinitions, windowLayout } from './hud-render-panels';
 import { adminContentEditPatchFromForm, buildAdminContentDraftUpdate, findAdminContentDraftRow } from './hud-render-admin-content';
-import type { HUDDragState, HUDHandlers, HUDModalDragState, HUDModalID, HUDModalState, HUDPanelDefinition, HUDResizeState, HUDWindowID, HUDWindowState } from './hud-types';
-import { clamp, escapeHTML, formatCompactNumber, formatPair, formatPercent, isControlElement, isInventoryTabID, isModuleFilterID, isQuickActionKey, isShopCategoryID, isSocialTabID, normalizeModalID, normalizePanelID, parseLoadoutDragPayload } from './hud-formatters';
+import type { HUDDragState, HUDHandlers, HUDModalDragState, HUDModalID, HUDModalState, HUDPanelDefinition, HUDResizeState, HUDWindowID, HUDWindowState, QuickbarAmmoAssignment } from './hud-types';
+import { clamp, escapeHTML, formatCompactNumber, formatPair, formatPercent, isControlElement, isInventoryTabID, isModuleFilterID, isQuickActionKey, isShopCategoryID, isSocialTabID, normalizeModalID, normalizePanelID, parseLoadoutDragPayload, parseQuickbarAmmoDragPayload } from './hud-formatters';
 import { dispatchPlanetRouteButtonAction } from './hud-planet-route-actions';
 
 export type { HUDHandlers } from './hud-types';
@@ -400,6 +400,14 @@ export class HUD {
     }
   }
 
+  private assignQuickbarAmmoSlot(slot: string, assignment: QuickbarAmmoAssignment): void {
+    if (!slot || !assignment.itemID) {
+      return;
+    }
+    hudSelection.quickbarAmmoAssignments[slot] = assignment;
+    this.rerenderCurrent();
+  }
+
   private dispatchAction(action: string | undefined): boolean {
     switch (action) {
       case 'stop':
@@ -505,6 +513,33 @@ export class HUD {
         case 'coordinate-item-use':
           if (button.dataset.itemInstanceId) {
             this.handlers.onCoordinateItemUse(button.dataset.itemInstanceId);
+          }
+          break;
+        case 'combat-ammo-select':
+          if (button.dataset.itemId) {
+            const family = button.dataset.ammoFamily === 'rocket' || button.dataset.ammoFamily === 'rocket_launcher'
+              ? button.dataset.ammoFamily
+              : 'laser';
+            this.handlers.onCombatAmmoSelect(family, button.dataset.itemId);
+          }
+          break;
+        case 'quickbar-ammo-assign':
+          if (button.dataset.quickbarSlot && button.dataset.itemId) {
+            this.assignQuickbarAmmoSlot(button.dataset.quickbarSlot, {
+              family: button.dataset.ammoFamily === 'rocket' || button.dataset.ammoFamily === 'rocket_launcher'
+                ? button.dataset.ammoFamily
+                : 'laser',
+              itemID: button.dataset.itemId,
+              label: button.dataset.ammoLabel || button.dataset.itemId,
+            });
+          }
+          break;
+        case 'ammo':
+          if (button.dataset.itemId) {
+            const family = button.dataset.ammoFamily === 'rocket' || button.dataset.ammoFamily === 'rocket_launcher'
+              ? button.dataset.ammoFamily
+              : 'laser';
+            this.handlers.onCombatAmmoSelect(family, button.dataset.itemId);
           }
           break;
         case 'hangar-activate':
@@ -780,6 +815,26 @@ export class HUD {
 
   private handleLoadoutDragStart(event: DragEvent): void {
     const target = event.target instanceof HTMLElement ? event.target : null;
+    const ammoRow = target?.closest<HTMLElement>('[data-quickbar-ammo-item-id]');
+    if (ammoRow && event.dataTransfer) {
+      const payload: QuickbarAmmoAssignment = {
+        family: ammoRow.dataset.quickbarAmmoFamily === 'rocket' || ammoRow.dataset.quickbarAmmoFamily === 'rocket_launcher'
+          ? ammoRow.dataset.quickbarAmmoFamily
+          : 'laser',
+        itemID: ammoRow.dataset.quickbarAmmoItemId ?? '',
+        label: ammoRow.dataset.quickbarAmmoLabel ?? ammoRow.dataset.quickbarAmmoItemId ?? '',
+      };
+      if (!payload.itemID) {
+        return;
+      }
+      event.dataTransfer.effectAllowed = 'copy';
+      event.dataTransfer.setData('application/x-space-mORPG-quickbar-ammo', JSON.stringify(payload));
+      event.dataTransfer.setData('text/plain', payload.itemID);
+      ammoRow.dataset.dragging = 'true';
+      this.markQuickbarAmmoDropTargets();
+      markHUDInputSuppressed();
+      return;
+    }
     const moduleCard = target?.closest<HTMLElement>('[data-module-instance-id]');
     if (!moduleCard || !event.dataTransfer) {
       return;
@@ -805,6 +860,9 @@ export class HUD {
     for (const element of this.root.querySelectorAll<HTMLElement>('[data-module-instance-id][data-dragging="true"]')) {
       delete element.dataset.dragging;
     }
+    for (const element of this.root.querySelectorAll<HTMLElement>('[data-quickbar-ammo-item-id][data-dragging="true"]')) {
+      delete element.dataset.dragging;
+    }
     this.clearLoadoutDropTargets();
     markHUDInputSuppressed();
   }
@@ -812,6 +870,17 @@ export class HUD {
   private handleLoadoutDragOver(event: DragEvent): void {
     const target = event.target instanceof HTMLElement ? event.target : null;
     this.clearLoadoutDropHover();
+    if (event.dataTransfer && HUD.dragHasType(event.dataTransfer, 'application/x-space-mORPG-quickbar-ammo')) {
+      const quickbarTarget = target?.closest<HTMLElement>('[data-quickbar-ammo-slot]');
+      if (!quickbarTarget) {
+        return;
+      }
+      quickbarTarget.dataset.dropHover = 'true';
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      markHUDInputSuppressed();
+      return;
+    }
     const slotTarget = target?.closest<HTMLElement>('[data-loadout-slot-id]');
     const inventoryTarget = target?.closest<HTMLElement>('[data-loadout-inventory-drop]');
     if (!slotTarget && !inventoryTarget) {
@@ -832,6 +901,19 @@ export class HUD {
   private handleLoadoutDrop(event: DragEvent): void {
     const target = event.target instanceof HTMLElement ? event.target : null;
     if (!target || !event.dataTransfer) {
+      return;
+    }
+    const ammoPayload = parseQuickbarAmmoDragPayload(event.dataTransfer.getData('application/x-space-mORPG-quickbar-ammo'));
+    if (ammoPayload) {
+      const quickbarTarget = target.closest<HTMLElement>('[data-quickbar-ammo-slot]');
+      if (!quickbarTarget?.dataset.quickbarAmmoSlot) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      this.clearLoadoutDropTargets();
+      this.assignQuickbarAmmoSlot(quickbarTarget.dataset.quickbarAmmoSlot, ammoPayload);
+      markHUDInputSuppressed();
       return;
     }
     const payload = parseLoadoutDragPayload(event.dataTransfer.getData('application/x-space-mORPG-module'));
@@ -867,6 +949,13 @@ export class HUD {
       if (payload.slotID) {
         bay.dataset.dropState = 'compatible';
       }
+    }
+  }
+
+  private markQuickbarAmmoDropTargets(): void {
+    this.clearLoadoutDropTargets();
+    for (const slot of this.root.querySelectorAll<HTMLElement>('[data-quickbar-ammo-slot]')) {
+      slot.dataset.dropState = 'compatible';
     }
   }
 
@@ -913,6 +1002,10 @@ export class HUD {
     event.preventDefault();
     event.stopPropagation();
     markHUDInputSuppressed();
+    if (action.action === 'ammo' && action.ammoFamily && action.itemID) {
+      this.handlers.onCombatAmmoSelect(action.ammoFamily, action.itemID);
+      return;
+    }
     this.dispatchAction(action.action);
   }
 
@@ -1141,6 +1234,10 @@ export class HUD {
 
   private static cssAttributeValue(value: string): string {
     return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  private static dragHasType(dataTransfer: DataTransfer, type: string): boolean {
+    return Array.from(dataTransfer.types).includes(type);
   }
 
   private isWindowOpen(panel: HUDWindowID): boolean {

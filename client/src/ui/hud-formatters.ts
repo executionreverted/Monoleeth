@@ -28,6 +28,32 @@ export function parseLoadoutDragPayload(raw: string): { itemInstanceID: string; 
   }
 }
 
+export function parseQuickbarAmmoDragPayload(raw: string): { family: 'laser' | 'rocket' | 'rocket_launcher'; itemID: string; label: string } | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as { family?: unknown; itemID?: unknown; label?: unknown };
+    if (
+      parsed.family !== 'laser' &&
+      parsed.family !== 'rocket' &&
+      parsed.family !== 'rocket_launcher'
+    ) {
+      return null;
+    }
+    if (typeof parsed.itemID !== 'string' || parsed.itemID === '') {
+      return null;
+    }
+    return {
+      family: parsed.family,
+      itemID: parsed.itemID,
+      label: typeof parsed.label === 'string' && parsed.label !== '' ? parsed.label : parsed.itemID,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function hasPendingOp(state: ClientState, op: string): boolean {
   return Object.values(state.pendingCommands).some((command) => command.op === op);
 }

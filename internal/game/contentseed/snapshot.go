@@ -7,65 +7,164 @@ import (
 
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/content"
+	"gameproject/internal/game/contentseed/kalaazu"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/quests"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
 )
 
-const MVPSnapshotVersion = "content_old_darkorbit_2009_seed_v1"
+const MVPSnapshotVersion = "content_kalaazu_starter_seed_v1"
 
-// BuildMVPSnapshot compiles the current validated seed bundle into deterministic
-// CMS snapshot rows for first-run contentdb publishing.
-func BuildMVPSnapshot(worldID world.WorldID) (content.Snapshot, error) {
+// BuildDefaultSnapshot compiles the current Kalaazu-derived default seed into
+// deterministic CMS snapshot rows for first-run contentdb publishing.
+func BuildDefaultSnapshot(worldID world.WorldID) (content.Snapshot, error) {
 	bundle, err := content.DefaultGameplayContent(worldID)
 	if err != nil {
 		return content.Snapshot{}, err
 	}
 
 	snapshot := content.Snapshot{Version: MVPSnapshotVersion}
-	if err := appendCoreRows(&snapshot, bundle); err != nil {
+	kalaazuRows, err := appendCoreRows(&snapshot, bundle)
+	if err != nil {
 		return content.Snapshot{}, err
 	}
-	if err := appendQuestRows(&snapshot); err != nil {
-		return content.Snapshot{}, err
-	}
+	applyKalaazuQuestRows(&snapshot, kalaazuRows)
 	if err := snapshot.Validate(); err != nil {
 		return content.Snapshot{}, err
 	}
 	return snapshot, nil
 }
 
-func appendCoreRows(snapshot *content.Snapshot, bundle content.GameplayContent) error {
+// BuildMVPSnapshot is a legacy compatibility wrapper for older tests and seed
+// callers. New runtime code should call BuildDefaultSnapshot.
+func BuildMVPSnapshot(worldID world.WorldID) (content.Snapshot, error) {
+	return BuildDefaultSnapshot(worldID)
+}
+
+func appendCoreRows(snapshot *content.Snapshot, bundle content.GameplayContent) (kalaazu.DefaultRows, error) {
 	var err error
 	if snapshot.Items, err = itemRows(bundle); err != nil {
-		return err
+		return kalaazu.DefaultRows{}, err
 	}
 	if snapshot.Modules, err = moduleRows(bundle); err != nil {
-		return err
+		return kalaazu.DefaultRows{}, err
 	}
 	if snapshot.Ships, err = shipRows(bundle); err != nil {
-		return err
+		return kalaazu.DefaultRows{}, err
 	}
 	if snapshot.ShopProducts, err = shopProductRows(bundle); err != nil {
-		return err
+		return kalaazu.DefaultRows{}, err
 	}
 	if snapshot.LootTables, err = lootTableRows(bundle); err != nil {
-		return err
+		return kalaazu.DefaultRows{}, err
 	}
 	if snapshot.CraftRecipes, err = craftRecipeRows(bundle); err != nil {
-		return err
+		return kalaazu.DefaultRows{}, err
 	}
 	if snapshot.ProductionBuildings, err = productionBuildingRows(bundle); err != nil {
-		return err
+		return kalaazu.DefaultRows{}, err
 	}
 	if err := appendMapNPCRows(snapshot, bundle); err != nil {
-		return err
+		return kalaazu.DefaultRows{}, err
 	}
+	kalaazuRows, err := kalaazu.BuildDefaultRows(kalaazu.DefaultSeedFS())
+	if err != nil {
+		return kalaazu.DefaultRows{}, err
+	}
+	applyKalaazuStarterRows(snapshot, kalaazuRows)
 	if err := appendServerRuleRows(snapshot, bundle); err != nil {
-		return err
+		return kalaazu.DefaultRows{}, err
 	}
-	return nil
+	applyKalaazuScannerConfigRows(snapshot, kalaazuRows)
+	applyKalaazuStarterConfigRows(snapshot, kalaazuRows)
+	applyKalaazuRoutePolicyRows(snapshot, kalaazuRows)
+	applyKalaazuProductionRuleRows(snapshot, kalaazuRows)
+	applyKalaazuCombatRuleRows(snapshot, kalaazuRows)
+	return kalaazuRows, nil
+}
+
+func applyKalaazuStarterRows(snapshot *content.Snapshot, rows kalaazu.DefaultRows) {
+	snapshot.Maps = rows.MapRows
+	snapshot.MapPortals = rows.MapPortalRows
+	snapshot.Items = replaceSnapshotRows(snapshot.Items, rows.ItemRows)
+	snapshot.Modules = replaceSnapshotRows(snapshot.Modules, rows.ModuleRows)
+	snapshot.Ships = replaceSnapshotRows(snapshot.Ships, rows.ShipRows)
+	snapshot.ShopProducts = rows.ShopProductRows
+	snapshot.LootTables = rows.LootTableRows
+	snapshot.CraftRecipes = rows.CraftRecipeRows
+	snapshot.ProductionBuildings = rows.ProductionBuildingRows
+	snapshot.NPCTemplates = rows.NPCTemplateRows
+	snapshot.SpawnAreas = rows.SpawnAreaRows
+	snapshot.EnemyPools = rows.EnemyPoolRows
+	snapshot.NPCDropProfiles = rows.NPCDropRows
+	snapshot.NPCAggroProfiles = rows.NPCAggroRows
+	snapshot.NPCLeashProfiles = rows.NPCLeashRows
+	snapshot.NPCEventSpawns = nil
+}
+
+func appendMissingSnapshotRows(existing []content.SnapshotRow, candidates []content.SnapshotRow) []content.SnapshotRow {
+	seen := make(map[content.ContentID]struct{}, len(existing)+len(candidates))
+	for _, row := range existing {
+		seen[row.ContentID] = struct{}{}
+	}
+	out := append([]content.SnapshotRow(nil), existing...)
+	for _, row := range candidates {
+		if _, exists := seen[row.ContentID]; exists {
+			continue
+		}
+		seen[row.ContentID] = struct{}{}
+		out = append(out, row)
+	}
+	return out
+}
+
+func replaceSnapshotRows(existing []content.SnapshotRow, candidates []content.SnapshotRow) []content.SnapshotRow {
+	replacements := make(map[content.ContentID]content.SnapshotRow, len(candidates))
+	for _, row := range candidates {
+		replacements[row.ContentID] = row
+	}
+	out := make([]content.SnapshotRow, 0, len(existing)+len(candidates))
+	for _, row := range existing {
+		if replacement, ok := replacements[row.ContentID]; ok {
+			out = append(out, replacement)
+			delete(replacements, row.ContentID)
+			continue
+		}
+		out = append(out, row)
+	}
+	for _, row := range candidates {
+		if _, ok := replacements[row.ContentID]; !ok {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func applyKalaazuStarterConfigRows(snapshot *content.Snapshot, rows kalaazu.DefaultRows) {
+	snapshot.StarterConfigs = rows.StarterConfigRows
+}
+
+func applyKalaazuScannerConfigRows(snapshot *content.Snapshot, rows kalaazu.DefaultRows) {
+	snapshot.ScannerConfigs = rows.ScannerConfigRows
+}
+
+func applyKalaazuRoutePolicyRows(snapshot *content.Snapshot, rows kalaazu.DefaultRows) {
+	snapshot.RoutePolicies = rows.RoutePolicyRows
+}
+
+func applyKalaazuProductionRuleRows(snapshot *content.Snapshot, rows kalaazu.DefaultRows) {
+	snapshot.ProductionRules = rows.ProductionRuleRows
+}
+
+func applyKalaazuCombatRuleRows(snapshot *content.Snapshot, rows kalaazu.DefaultRows) {
+	snapshot.CombatRules = rows.CombatRuleRows
+}
+
+func applyKalaazuQuestRows(snapshot *content.Snapshot, rows kalaazu.DefaultRows) {
+	snapshot.QuestTemplates = rows.QuestTemplateRows
+	snapshot.QuestRewardTables = rows.QuestRewardRows
 }
 
 func appendServerRuleRows(snapshot *content.Snapshot, bundle content.GameplayContent) error {

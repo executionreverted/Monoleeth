@@ -21,6 +21,8 @@ type Snapshot struct {
 	Modules             []SnapshotRow `json:"modules"`
 	Ships               []SnapshotRow `json:"ships"`
 	ShopProducts        []SnapshotRow `json:"shop_products"`
+	Maps                []SnapshotRow `json:"maps"`
+	MapPortals          []SnapshotRow `json:"map_portals"`
 	NPCTemplates        []SnapshotRow `json:"npc_templates"`
 	SpawnAreas          []SnapshotRow `json:"spawn_areas"`
 	EnemyPools          []SnapshotRow `json:"enemy_pools"`
@@ -70,6 +72,8 @@ func (snapshot Snapshot) Groups() []SnapshotGroup {
 		{Type: ContentTypeModule, Rows: snapshot.Modules},
 		{Type: ContentTypeShip, Rows: snapshot.Ships},
 		{Type: ContentTypeShopProduct, Rows: snapshot.ShopProducts},
+		{Type: ContentTypeMap, Rows: snapshot.Maps},
+		{Type: ContentTypeMapPortal, Rows: snapshot.MapPortals},
 		{Type: ContentTypeNPCTemplate, Rows: snapshot.NPCTemplates},
 		{Type: ContentTypeSpawnArea, Rows: snapshot.SpawnAreas},
 		{Type: ContentTypeEnemyPool, Rows: snapshot.EnemyPools},
@@ -104,6 +108,10 @@ func (snapshot *Snapshot) SetRows(contentType ContentType, rows []SnapshotRow) e
 		snapshot.Ships = cloned
 	case ContentTypeShopProduct:
 		snapshot.ShopProducts = cloned
+	case ContentTypeMap:
+		snapshot.Maps = cloned
+	case ContentTypeMapPortal:
+		snapshot.MapPortals = cloned
 	case ContentTypeNPCTemplate:
 		snapshot.NPCTemplates = cloned
 	case ContentTypeSpawnArea:

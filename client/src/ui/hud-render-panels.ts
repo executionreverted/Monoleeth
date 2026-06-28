@@ -9,8 +9,8 @@ import { cargoPanel } from './hud-render-inventory';
 import { planetCatalogPanel, planetDetailModal, planetModalTitle, planetsPanel, minimapPanel } from './hud-render-planets';
 import { questsPanel } from './hud-render-quests';
 import { adminContentBlock, adminContentEditModal } from './hud-render-admin-content';
-import type { ActionState, EntityCombatStatus, HUDHelpTopicID, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, KnownLootDropStatus, QuickActionCommand, QuickActionID, QuickActionState, SocialTabID, VisibleEntity } from './hud-types';
-import { actionScanLabel, clamp, escapeHTML, formatCooldown, formatDuration, formatPair, formatVec, hasPendingOp, isHelpTopicID, lockedValue, publicEntityType, publicPlanetName, realtimeReady, scanModeTimeDetail, scanStatusLabel } from './hud-formatters';
+import type { ActionState, CombatAmmoFamily, EntityCombatStatus, HUDHelpTopicID, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, KnownLootDropStatus, QuickActionCommand, QuickActionID, QuickActionState, SocialTabID, VisibleEntity } from './hud-types';
+import { actionScanLabel, clamp, escapeHTML, formatCooldown, formatDuration, formatPair, formatVec, hasPendingOp, hasPendingOpPayloadField, isHelpTopicID, lockedValue, publicEntityType, publicPlanetName, realtimeReady, scanModeTimeDetail, scanStatusLabel } from './hud-formatters';
 
 export const baseWindowDefinitions: HUDPanelDefinition[] = [
   { id: 'cargo', label: 'Inv', title: 'Inventory', iconURL: inventoryIconURL, helpTopic: 'inventory', render: cargoPanel },
@@ -630,11 +630,15 @@ export function adminOpsBlock(state: ClientState): string {
 }
 
 export function targetPanel(state: ClientState, serverNow: number | null = Date.now()): string {
-  const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
+  const target = primaryTarget(state);
   const actions = quickActionMap(state, serverNow);
   const laser = actions.laser;
   const loot = actions.gather;
   const targetLabel = target?.display?.label ?? target?.entity_id ?? '';
+  const activeCombatTarget = isActiveCombatTarget(state, target);
+  const targetKind = target
+    ? `${publicEntityType(target.entity_type)}${activeCombatTarget ? ' / active lock' : ''}`
+    : '';
   const distance = target ? distanceToTarget(state, target.entity_id, serverNow) : null;
   const knownLoot = target ? state.knownLoot[target.entity_id] : null;
   const targetActions = targetActionButtons(target, laser, loot, selfEntity(state.visibleEntities));
@@ -646,7 +650,7 @@ export function targetPanel(state: ClientState, serverNow: number | null = Date.
              <span class="target-lock__mark"></span>
              <div>
                <div class="target-name">${escapeHTML(targetLabel)}</div>
-               <div class="target-kind">${escapeHTML(publicEntityType(target.entity_type))}</div>
+               <div class="target-kind">${escapeHTML(targetKind)}</div>
              </div>
            </div>
            <div class="meta-row"><span>Type</span><strong>${escapeHTML(publicEntityType(target.entity_type))}</strong></div>
@@ -666,7 +670,7 @@ export function targetActionButtons(target: VisibleEntity | null, laser: QuickAc
   const buttons: string[] = [];
   if (isAttackableVisibleTarget(target, self)) {
     buttons.push(
-      `<button type="button" data-action="fire" ${laser.enabled ? '' : 'disabled'} title="${escapeHTML(laser.title)}">Fire</button>`,
+      `<button type="button" data-action="fire" ${laser.enabled ? '' : 'disabled'} title="${escapeHTML(laser.title)}">${escapeHTML(laser.label)}</button>`,
     );
   }
   if (target?.entity_type === 'loot') {
@@ -910,16 +914,34 @@ export function quickActionMap(state: ClientState, serverNow: number | null): Re
 }
 
 export function quickActionStates(state: ClientState, serverNow: number | null): QuickActionState[] {
-  const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
+  const target = primaryTarget(state);
   const loot = lootActionState(state, target, serverNow);
-  return [
-    liveQuickAction('laser', 'fire', 1, '1', laserIconURL, 'combat.use_skill', laserActionState(state, target, serverNow)),
+  const baseActions = [
+    liveQuickAction('laser', 'fire', 1, '1', laserIconURL, laserCommandOp(state, target), laserActionState(state, target, serverNow)),
     lockedQuickAction('rocket', 'rocket', 2, '2', rocketIconURL, 'Rocket', 'Missile systems are not installed yet.'),
     liveQuickAction('scan', 'scan', 3, '3', scanIconURL, 'scan.pulse', scanActionState(state)),
     liveQuickAction('stealth', 'stealth', 4, '4', shieldIconURL, 'stealth.toggle', stealthActionState(state)),
     lockedQuickAction('warp', 'warp', 5, '5', warpIconURL, 'Warp', 'Warp drive is not installed yet.'),
     liveQuickAction('gather', 'loot', 6, '6', gatherIconURL, lootCommandOp(loot), loot),
   ];
+  return baseActions.map((action) => quickbarAssignedAmmoAction(action, state) ?? action);
+}
+
+function primaryTarget(state: ClientState): VisibleEntity | null {
+  if (state.selectedTargetID) {
+    const selected = state.visibleEntities[state.selectedTargetID];
+    if (selected) {
+      return selected;
+    }
+  }
+  if (state.combatEngagement.active && state.combatEngagement.targetID) {
+    return state.visibleEntities[state.combatEngagement.targetID] ?? null;
+  }
+  return null;
+}
+
+function isActiveCombatTarget(state: ClientState, target: VisibleEntity | null): boolean {
+  return state.combatEngagement.active && target?.entity_id === state.combatEngagement.targetID;
 }
 
 export function liveQuickAction(
@@ -971,15 +993,66 @@ export function lockedQuickAction(
 
 export function actionSlotHTML(action: QuickActionState): string {
   const commandAttr = action.commandOp ? ` data-command-op="${escapeHTML(action.commandOp)}"` : '';
+  const ammoAttrs = action.action === 'ammo' && action.ammoFamily && action.itemID
+    ? ` data-ammo-family="${escapeHTML(action.ammoFamily)}" data-item-id="${escapeHTML(action.itemID)}"`
+    : '';
   return `
-    <div class="action-slot" data-slot="${action.slot}" data-quick-action-slot="${action.id}" data-state="${action.state}"${commandAttr}>
-      <button class="action-button" type="button" data-action="${action.action}" data-quick-action="${action.id}" data-state="${action.state}" aria-label="${escapeHTML(action.label)} action" aria-keyshortcuts="${action.key}" ${action.enabled ? '' : 'disabled'} title="${escapeHTML(action.title)}">
+    <div class="action-slot" data-slot="${action.slot}" data-quick-action-slot="${action.id}" data-quickbar-ammo-slot="${action.slot}" data-state="${action.state}"${commandAttr}>
+      <button class="action-button" type="button" data-action="${action.action}" data-quick-action="${action.id}" data-state="${action.state}"${ammoAttrs} aria-label="${escapeHTML(action.label)} action" aria-keyshortcuts="${action.key}" ${action.enabled ? '' : 'disabled'} title="${escapeHTML(action.title)}">
         <img class="action-button__icon" src="${escapeHTML(action.iconURL)}" alt="" aria-hidden="true" draggable="false" />
         <span class="action-button__label">${escapeHTML(action.label)}</span>
         <small>${escapeHTML(action.detail)}</small>
       </button>
     </div>
   `;
+}
+
+function quickbarAssignedAmmoAction(action: QuickActionState, state: ClientState): QuickActionState | null {
+  const assignment = hudSelection.quickbarAmmoAssignments[String(action.slot)];
+  if (!assignment) {
+    return null;
+  }
+  const stack = state.inventory?.stackable.find(
+    (item) => item.item_id === assignment.itemID && item.location === 'account_inventory',
+  ) ?? null;
+  const selected = activeAmmoForFamily(state, assignment.family)?.itemID === assignment.itemID;
+  const pending = hasPendingOpPayloadField(state, OPERATIONS.combatSelectAmmo, 'item_id', assignment.itemID);
+  const enabled = realtimeReady(state) && !pending && Boolean(stack && stack.quantity > 0);
+  const detail = pending
+    ? 'Pending'
+    : selected
+      ? 'Selected'
+      : stack
+        ? `x${stack.quantity}`
+        : 'Empty';
+  const title = !realtimeReady(state)
+    ? 'Realtime connection required.'
+    : !stack || stack.quantity <= 0
+      ? `${assignment.label} is not available in account inventory.`
+      : selected
+        ? `${assignment.label} selected server-side.`
+        : `Select ${assignment.label} server-side.`;
+  return {
+    ...action,
+    action: 'ammo',
+    iconURL: laserIconURL,
+    commandOp: OPERATIONS.combatSelectAmmo,
+    enabled,
+    locked: false,
+    label: assignment.label,
+    detail,
+    title,
+    state: actionStateKind({ enabled, label: assignment.label, detail, title }),
+    ammoFamily: assignment.family,
+    itemID: assignment.itemID,
+  };
+}
+
+function activeAmmoForFamily(state: ClientState, family: CombatAmmoFamily): { itemID: string } | undefined {
+  if (family === 'laser') {
+    return state.combatEngagement.activeAmmo.laser;
+  }
+  return undefined;
 }
 
 export function actionStateKind(action: ActionState): QuickActionState['state'] {
@@ -1002,18 +1075,35 @@ export function lootCommandOp(action: ActionState): string {
   return action.label === 'Approach' ? 'move_to' : 'loot.pickup';
 }
 
+export function laserCommandOp(state: ClientState, target: VisibleEntity | null): string {
+  return state.combatEngagement.active && target?.entity_id === state.combatEngagement.targetID
+    ? OPERATIONS.combatStopAttack
+    : OPERATIONS.combatStartAttack;
+}
+
 export function laserActionState(state: ClientState, target: VisibleEntity | null, serverNow: number | null = Date.now()): ActionState {
+  const ammoDetail = laserAmmoDetail(state);
   if (!realtimeReady(state)) {
-    return { enabled: false, label: 'Laser', detail: 'Offline', title: 'Realtime link is not authenticated.' };
+    return { enabled: false, label: 'Attack', detail: 'Offline', title: 'Realtime link is not authenticated.' };
   }
   if (state.ship?.disabled === true) {
-    return { enabled: false, label: 'Laser', detail: 'Disabled', title: 'Repair the ship before firing.' };
+    return { enabled: false, label: 'Attack', detail: 'Disabled', title: 'Repair the ship before firing.' };
   }
-  if (!isAttackableVisibleTarget(target, selfEntity(state.visibleEntities))) {
-    return { enabled: false, label: 'Laser', detail: 'Standby', title: 'Select an attackable target.' };
+  if (!target || !isAttackableVisibleTarget(target, selfEntity(state.visibleEntities))) {
+    return { enabled: false, label: 'Attack', detail: 'Standby', title: 'Select an attackable target.' };
   }
-  if (hasPendingOp(state, 'combat.use_skill')) {
-    return { enabled: false, label: 'Laser', detail: 'Pending', title: 'Basic laser is pending.' };
+  if (hasPendingOp(state, OPERATIONS.combatStartAttack) || hasPendingOp(state, OPERATIONS.combatStopAttack)) {
+    return { enabled: false, label: state.combatEngagement.active ? 'Stop' : 'Attack', detail: 'Pending', title: 'Attack stance change is pending.' };
+  }
+  if (state.combatEngagement.active && state.combatEngagement.targetID === target.entity_id) {
+    return {
+      enabled: true,
+      label: 'Stop',
+      detail: state.combatEngagement.nextFireAt && state.combatEngagement.nextFireAt > (serverNow ?? Date.now())
+        ? formatCooldown(state.combatEngagement.nextFireAt - (serverNow ?? Date.now()))
+        : ammoDetail,
+      title: `Stop the active attack stance. Active ammo: ${ammoDetail}.`,
+    };
   }
 
   const cooldownRemaining = (state.skillCooldowns.basic_laser ?? 0) - (serverNow ?? Date.now());
@@ -1029,12 +1119,12 @@ export function laserActionState(state: ClientState, target: VisibleEntity | nul
   const energyCost = state.stats?.basic_laser_energy_cost ?? null;
   const capacitor = state.ship?.capacitor ?? null;
   if (energyCost === null || energyCost <= 0 || capacitor === null) {
-    return { enabled: false, label: 'Laser', detail: 'Stats', title: 'Awaiting combat stats.' };
+    return { enabled: false, label: 'Attack', detail: 'Stats', title: 'Awaiting combat stats.' };
   }
   if (capacitor < energyCost) {
     return {
       enabled: false,
-      label: 'Laser',
+      label: 'Attack',
       detail: `Need ${Math.ceil(energyCost - capacitor)}`,
       title: `Basic laser needs ${Math.round(energyCost)} capacitor.`,
     };
@@ -1042,10 +1132,19 @@ export function laserActionState(state: ClientState, target: VisibleEntity | nul
 
   return {
     enabled: true,
-    label: 'Laser',
-    detail: `${Math.round(energyCost)} cap`,
-    title: `Fire basic laser for ${Math.round(energyCost)} capacitor.`,
+    label: state.combatEngagement.active ? 'Switch' : 'Attack',
+    detail: ammoDetail,
+    title: `Start basic laser attack stance for ${Math.round(energyCost)} capacitor. Active ammo: ${ammoDetail}.`,
   };
+}
+
+function laserAmmoDetail(state: ClientState): string {
+  const laser = state.combatEngagement.activeAmmo.laser;
+  if (!laser) {
+    return 'Ammo';
+  }
+  const label = (laser.ammoKey || laser.itemID).replace(/^ammunition_laser_/, '').replace(/_/g, '-').toUpperCase();
+  return `${label} x${laser.quantity}`;
 }
 
 export function scanActionState(state: ClientState): ActionState {

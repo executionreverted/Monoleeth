@@ -135,12 +135,32 @@ func createResolvedRuntimeSession(t *testing.T, gameServer *Server, email string
 
 func equipStarterLaserForTest(t *testing.T, gameServer *Server, playerID foundation.PlayerID) {
 	t.Helper()
+	seedStarterLaserAmmoForTest(t, gameServer, playerID, 100)
+	equipStarterLaserWithoutAmmoForTest(t, gameServer, playerID)
+}
+
+func equipStarterLaserWithoutAmmoForTest(t *testing.T, gameServer *Server, playerID foundation.PlayerID) {
+	t.Helper()
 	laserInstanceID := starterModuleInstanceID(t, gameServer.runtime, playerID, "laser_alpha_t1")
 	gameServer.runtime.mu.Lock()
 	defer gameServer.runtime.mu.Unlock()
 	if err := gameServer.runtime.equipModuleLocked(playerID, modules.ModuleSlotOffensive1, laserInstanceID, foundation.RequestID("test-equip-laser-"+playerID.String())); err != nil {
 		t.Fatalf("equip starter laser for %q: %v", playerID, err)
 	}
+}
+
+func seedStarterLaserAmmoForTest(t *testing.T, gameServer *Server, playerID foundation.PlayerID, quantity int64) {
+	t.Helper()
+	definition, ok := gameServer.runtime.itemCatalog["ammunition_laser_lcb_10"]
+	if !ok {
+		definition = testStackableDefinition(t, "ammunition_laser_lcb_10", "LCB-10", []economy.TradeFlag{economy.TradeFlagTradeable})
+		gameServer.runtime.itemCatalog["ammunition_laser_lcb_10"] = definition
+	}
+	location, err := economy.NewItemLocation(economy.LocationKindAccountInventory, playerID.String())
+	if err != nil {
+		t.Fatalf("starter laser ammo location: %v", err)
+	}
+	addTestInventoryStack(t, gameServer, playerID, definition, quantity, location, "starter-laser-ammo")
 }
 
 func unequipStarterLaserForTest(t *testing.T, gameServer *Server, playerID foundation.PlayerID) {

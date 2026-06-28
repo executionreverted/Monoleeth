@@ -178,6 +178,7 @@ func playableVerticalCombatLoot(
 ) string {
 	t.Helper()
 
+	seedStarterLaserAmmoForTest(t, gameServer, resolved.PlayerID, 100)
 	targetID := playableVerticalNPCEntityID(t, gameServer, resolved.PlayerID, npcType)
 	primeVerticalTargetForLootSmoke(t, gameServer, targetID)
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, targetID, world.Vec2{})

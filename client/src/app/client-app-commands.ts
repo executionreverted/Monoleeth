@@ -108,6 +108,10 @@ export abstract class ClientAppCommands extends ClientAppCore {
   }
 
   protected sendBasicSkill(): void {
+    this.toggleAttack();
+  }
+
+  protected toggleAttack(): void {
     if (combatCommandsDisabled(this.state)) {
       this.dispatch({ type: 'appendLog', level: 'warn', text: SHIP_DISABLED_COMBAT_MESSAGE });
       return;
@@ -118,7 +122,38 @@ export abstract class ClientAppCommands extends ClientAppCore {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'No attackable target selected.' });
       return;
     }
-    this.sendCommand(this.commandBuilder.combatUseSkill(target.entity_id));
+    if (this.state.combatEngagement.active && this.state.combatEngagement.targetID === target.entity_id) {
+      this.sendCombatStopAttack();
+      return;
+    }
+    this.sendCombatStartAttack(target.entity_id);
+  }
+
+  protected sendCombatStartAttack(targetID: string): void {
+    if (this.hasPendingOperation(OPERATIONS.combatStartAttack) || this.hasPendingOperation(OPERATIONS.combatStopAttack)) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Attack stance change already pending.' });
+      return;
+    }
+    this.sendCommand(this.commandBuilder.combatStartAttack(targetID));
+  }
+
+  protected sendCombatStopAttack(): void {
+    if (this.hasPendingOperation(OPERATIONS.combatStartAttack) || this.hasPendingOperation(OPERATIONS.combatStopAttack)) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Attack stance change already pending.' });
+      return;
+    }
+    this.sendCommand(this.commandBuilder.combatStopAttack());
+  }
+
+  protected sendCombatAmmoSelect(family: 'laser' | 'rocket' | 'rocket_launcher', itemID: string): void {
+    if (!itemID) {
+      return;
+    }
+    if (this.hasPendingOperation(OPERATIONS.combatSelectAmmo)) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Ammo selection already pending.' });
+      return;
+    }
+    this.sendCommand(this.commandBuilder.combatSelectAmmo(family, itemID));
   }
 
   protected sendLootPickup(): void {

@@ -48,6 +48,7 @@ const (
 	runtimePortalCooldown              = 30 * time.Second
 	runtimePortalProtectionDuration    = 10 * time.Second
 	runtimeQuestRewardLedgerReason     = economy.LedgerReason("quest_reward")
+	runtimeCombatAmmoUseLedgerReason   = economy.LedgerReason("combat_ammo_use")
 	runtimeSectorKey                   = "origin-fringe"
 	runtimeProjectionSourceWorker      = "worker_projection"
 	runtimeProjectionSourceKnownIntel  = "known_intel"
@@ -125,26 +126,29 @@ type Runtime struct {
 	mapInstances     map[worldmaps.MapID]*mapInstance
 	mapTickInstances []*mapInstance
 
-	players            map[foundation.PlayerID]playerRuntimeState
-	stealthBaseSpeeds  map[foundation.PlayerID]float64
-	eventSeq           map[auth.SessionID]uint64
-	eventRings         map[auth.SessionID]*sessionEventRing
-	sessions           map[auth.SessionID]foundation.PlayerID
-	sessionLocations   map[auth.SessionID]worldmaps.MapID
-	sessionEpochs      map[auth.SessionID]uint64
-	nextSessionEpoch   uint64
-	lastMove           map[foundation.PlayerID]time.Time
-	queuedEvents       map[auth.SessionID][]realtime.EventEnvelope
-	activeTransfers    map[foundation.PlayerID]portalTransferState
-	activeScanPulses   map[foundation.PlayerID]scanPulseMapGuard
-	activePlanetClaims map[foundation.PlanetID]int
-	portalCooldowns    map[portalCooldownKey]time.Time
-	portalAttempts     map[portalRequestKey]portalTransferRecord
-	playerProtections  map[protectionKey]playerProtectionState
-	pendingRespawns    map[foundation.PlayerID]pendingRespawnTarget
-	combatLocks        map[foundation.PlayerID]time.Time
-	shieldRepairTicks  map[foundation.PlayerID]time.Time
-	capacitorRefreshes map[foundation.PlayerID]time.Time
+	players                 map[foundation.PlayerID]playerRuntimeState
+	stealthBaseSpeeds       map[foundation.PlayerID]float64
+	eventSeq                map[auth.SessionID]uint64
+	eventRings              map[auth.SessionID]*sessionEventRing
+	sessions                map[auth.SessionID]foundation.PlayerID
+	sessionLocations        map[auth.SessionID]worldmaps.MapID
+	sessionEpochs           map[auth.SessionID]uint64
+	nextSessionEpoch        uint64
+	lastMove                map[foundation.PlayerID]time.Time
+	queuedEvents            map[auth.SessionID][]realtime.EventEnvelope
+	activeTransfers         map[foundation.PlayerID]portalTransferState
+	activeScanPulses        map[foundation.PlayerID]scanPulseMapGuard
+	activePlanetClaims      map[foundation.PlanetID]int
+	portalCooldowns         map[portalCooldownKey]time.Time
+	portalAttempts          map[portalRequestKey]portalTransferRecord
+	playerProtections       map[protectionKey]playerProtectionState
+	pendingRespawns         map[foundation.PlayerID]pendingRespawnTarget
+	combatLocks             map[foundation.PlayerID]time.Time
+	activeCombatEngagements map[foundation.PlayerID]combatEngagementState
+	lastCombatStopReasons   map[foundation.PlayerID]combatStopReason
+	activeCombatAmmo        map[foundation.PlayerID]map[gamecontent.CombatAmmoFamily]foundation.ItemID
+	shieldRepairTicks       map[foundation.PlayerID]time.Time
+	capacitorRefreshes      map[foundation.PlayerID]time.Time
 
 	nextPlayerEntity int
 
@@ -338,7 +342,7 @@ func loadRuntimeContentFromDB(ctx context.Context, contentConfig contentdb.Confi
 	if !hasContent {
 		buildSnapshot := config.contentSeedSnapshot
 		if buildSnapshot == nil {
-			buildSnapshot = contentseed.BuildMVPSnapshot
+			buildSnapshot = contentseed.BuildDefaultSnapshot
 		}
 		snapshot, err := buildSnapshot(config.WorldID)
 		if err != nil {
@@ -1389,6 +1393,9 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		playerProtections:              make(map[protectionKey]playerProtectionState),
 		pendingRespawns:                make(map[foundation.PlayerID]pendingRespawnTarget),
 		combatLocks:                    make(map[foundation.PlayerID]time.Time),
+		activeCombatEngagements:        make(map[foundation.PlayerID]combatEngagementState),
+		lastCombatStopReasons:          make(map[foundation.PlayerID]combatStopReason),
+		activeCombatAmmo:               make(map[foundation.PlayerID]map[gamecontent.CombatAmmoFamily]foundation.ItemID),
 		shieldRepairTicks:              make(map[foundation.PlayerID]time.Time),
 		capacitorRefreshes:             make(map[foundation.PlayerID]time.Time),
 		Combat:                         combatService,

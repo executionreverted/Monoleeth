@@ -162,6 +162,42 @@ describe('cargoPanel crafting tab', () => {
     expect(buttonHTML(pendingHTML, 'coordinate-item-use')).toContain('disabled');
     expect(buttonHTML(pendingHTML, 'coordinate-item-use')).toContain('Using');
   });
+
+  test('renders laser ammo select intent without client-authored combat facts', () => {
+    hudSelection.selectedInventoryTab = 'inventory';
+    const state = craftingState();
+    state.inventory!.stackable.push({
+      item_id: 'ammunition_laser_mcb_50',
+      display_name: 'MCB-50',
+      quantity: 25,
+      location: 'account_inventory',
+    });
+
+    const html = cargoPanel(state, 2_000);
+    const button = buttonHTML(html, 'combat-ammo-select');
+    const assignButton = buttonHTML(html, 'quickbar-ammo-assign');
+
+    expect(button).toContain('data-ammo-family="laser"');
+    expect(button).toContain('data-item-id="ammunition_laser_mcb_50"');
+    expect(assignButton).toContain('data-quickbar-slot="2"');
+    expect(assignButton).toContain('data-ammo-family="laser"');
+    expect(assignButton).toContain('data-item-id="ammunition_laser_mcb_50"');
+    expect(button).not.toContain('data-quantity');
+    expect(button).not.toContain('data-damage');
+    expect(button).not.toContain('data-multiplier');
+    expect(assignButton).not.toContain('data-quantity');
+    expect(assignButton).not.toContain('data-damage');
+    expect(assignButton).not.toContain('data-multiplier');
+    expect(html).toContain('draggable="true"');
+    expect(html).toContain('data-quickbar-ammo-family="laser"');
+    expect(html).toContain('data-quickbar-ammo-item-id="ammunition_laser_mcb_50"');
+
+    state.combatEngagement.activeAmmo = {
+      laser: { itemID: 'ammunition_laser_mcb_50', ammoKey: 'mcb_50', quantity: 25, powerMultiplier: 3 },
+    };
+    const selectedHTML = cargoPanel(state, 2_000);
+    expect(buttonHTML(selectedHTML, 'combat-ammo-select')).toContain('Selected');
+  });
 });
 
 function craftingState(): ClientState {

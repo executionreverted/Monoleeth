@@ -44,10 +44,7 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 	defer conn.CloseNow()
 	events := readBootstrapEvents(t, conn)
 
-	var snapshot worldSnapshotPayload
-	if err := json.Unmarshal(events[len(events)-1].Payload, &snapshot); err != nil {
-		t.Fatalf("decode world snapshot: %v", err)
-	}
+	snapshot := decodeWorldSnapshotForTest(t, events)
 	if snapshot.Sector.Name != "Origin Fringe" || snapshot.Sector.Region != "Origin Belt" || snapshot.Sector.Danger == "" {
 		t.Fatalf("sector payload = %+v, want client-safe sector summary", snapshot.Sector)
 	}

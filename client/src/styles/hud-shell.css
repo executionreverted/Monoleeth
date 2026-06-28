@@ -58,12 +58,8 @@
   left: 0.5rem;
   right: 0.5rem;
   z-index: 4;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.625rem;
-  align-items: center;
-  min-height: 2.75rem;
-  padding: 0.25rem 0.5rem;
+  min-height: 2.45rem;
+  padding: 0.18rem 0.45rem;
   pointer-events: auto;
 }
 
@@ -179,7 +175,7 @@
 
 .top-status {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0;
   min-width: 0;
 }
@@ -192,11 +188,11 @@
   grid-template-areas:
     "icon label"
     "icon value";
-  grid-template-columns: 1.05rem minmax(0, 1fr);
-  column-gap: 0.5rem;
+  grid-template-columns: 0.92rem minmax(0, 1fr);
+  column-gap: 0.38rem;
   align-content: center;
   border-left: 1px solid rgba(215, 247, 255, 0.22);
-  padding: 0.125rem 0.625rem;
+  padding: 0.08rem 0.42rem;
 }
 
 .top-status__icon,
@@ -234,7 +230,7 @@
   grid-area: value;
   min-width: 0;
   color: #f4c95d;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   line-height: 1.05;
   overflow-wrap: anywhere;
   text-transform: uppercase;

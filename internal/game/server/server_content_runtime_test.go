@@ -11,6 +11,7 @@ import (
 	"gameproject/internal/game/catalog"
 	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/contentdb"
+	"gameproject/internal/game/contentseed"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/modules"
@@ -617,6 +618,39 @@ func TestLoadRuntimeContentFromDBSeedsEmptyStoreThenLoadsRepository(t *testing.T
 	}
 }
 
+func TestLoadRuntimeContentFromDBDefaultSeedUsesKalaazuSnapshot(t *testing.T) {
+	store := &fakeRuntimeContentStore{}
+	repository := &fakeRuntimeRepository{bundle: runtimeTestBundle(t)}
+
+	_, err := loadRuntimeContent(context.Background(), RuntimeConfig{
+		WorldID:   foundation.WorldID("world-1"),
+		ContentDB: runtimeContentDBConfig(),
+		contentDBOpen: func(context.Context, contentdb.Config) (runtimeContentStore, error) {
+			return store, nil
+		},
+		contentRepositoryStore: func(runtimeContentStore) (gamecontent.Repository, error) {
+			return repository, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("loadRuntimeContent() error = %v, want nil", err)
+	}
+	if len(store.published) != 1 {
+		t.Fatalf("published seed writes = %d, want 1", len(store.published))
+	}
+	snapshot := store.published[0].Snapshot
+	if snapshot.Version != contentseed.MVPSnapshotVersion {
+		t.Fatalf("seed snapshot version = %q, want %q", snapshot.Version, contentseed.MVPSnapshotVersion)
+	}
+	if !snapshotHasRow(snapshot.Maps, "map_1_1") ||
+		!snapshotHasRow(snapshot.NPCTemplates, "map_1_1.streuner_1_template") ||
+		!snapshotHasRow(snapshot.Ships, "ship_goliath") ||
+		!snapshotHasRow(snapshot.ShopProducts, "product_ship_goliath") {
+		t.Fatalf("seed snapshot missing Kalaazu rows: maps=%d npcs=%d ships=%d shop=%d",
+			len(snapshot.Maps), len(snapshot.NPCTemplates), len(snapshot.Ships), len(snapshot.ShopProducts))
+	}
+}
+
 func TestLoadRuntimeContentFromDBDoesNotOverwriteExistingContent(t *testing.T) {
 	store := &fakeRuntimeContentStore{hasAny: true}
 	repository := &fakeRuntimeRepository{bundle: runtimeTestBundle(t)}
@@ -1073,6 +1107,15 @@ func countRuntimeSeedRows(upserts []runtimeSeedUpsert) int {
 		count += len(upsert.rows)
 	}
 	return count
+}
+
+func snapshotHasRow(rows []gamecontent.SnapshotRow, contentID gamecontent.ContentID) bool {
+	for _, row := range rows {
+		if row.ContentID == contentID {
+			return true
+		}
+	}
+	return false
 }
 
 func equalMigrationModes(left, right []contentdb.MigrationMode) bool {

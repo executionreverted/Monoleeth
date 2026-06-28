@@ -103,6 +103,7 @@ func (stat StatKey) Validate() error {
 	case StatWeaponDamage,
 		StatWeaponRange,
 		StatAccuracy,
+		StatSpeed,
 		StatShieldMax,
 		StatShieldRegen,
 		StatScanPower,

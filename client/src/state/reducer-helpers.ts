@@ -1,5 +1,5 @@
 import { EntityPayload, JsonObject, JsonValue, Vec2 } from '../protocol/envelope';
-import type { ClientState, LogLine, ScanModeState } from './types';
+import type { ClientState, CombatEngagementState, LogLine, ScanModeState } from './types';
 
 export function isVec2(value: JsonValue | unknown): value is Vec2 {
   return (
@@ -100,6 +100,18 @@ export function initialScanMode(): ScanModeState {
   };
 }
 
+export function initialCombatEngagement(): CombatEngagementState {
+  return {
+    active: false,
+    targetID: null,
+    skillID: null,
+    startedAt: null,
+    nextFireAt: null,
+    lastStopReason: null,
+    activeAmmo: {},
+  };
+}
+
 export function appendLog(lines: LogLine[], level: LogLine['level'], text: string): LogLine[] {
   return [...lines.slice(-39), newLog(level, text)];
 }
@@ -121,6 +133,7 @@ export function clearGameplay(state: ClientState): ClientState {
     movementTarget: null,
     lastCorrection: null,
     knownLoot: {},
+    combatEngagement: initialCombatEngagement(),
     social: {
       chatMessages: [],
       party: null,

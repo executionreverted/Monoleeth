@@ -63,10 +63,13 @@ type CooldownState map[string]time.Time
 
 // BasicAttackInput identifies a server-authorized basic laser intent.
 type BasicAttackInput struct {
-	AttackerID world.EntityID
-	TargetID   world.EntityID
-	Viewer     *visibility.Viewer
-	Policy     AttackPolicy
+	AttackerID       world.EntityID
+	TargetID         world.EntityID
+	DamageMultiplier float64
+	AmmoItemID       foundation.ItemID
+	AmmoFallback     bool
+	Viewer           *visibility.Viewer
+	Policy           AttackPolicy
 }
 
 // AttackPolicy is a server-side facade for map, safe-zone, and protection
@@ -101,6 +104,8 @@ type BasicAttackResult struct {
 	Damage       float64
 	ShieldDamage float64
 	HPDamage     float64
+	AmmoItemID   foundation.ItemID
+	AmmoFallback bool
 
 	Killed          bool
 	KillEvent       *NPCKilledEvent
@@ -171,6 +176,14 @@ func (input BasicAttackInput) validate() error {
 	}
 	if input.AttackerID == input.TargetID {
 		return ErrInvalidActorState
+	}
+	if !finiteNonNegative(input.DamageMultiplier) {
+		return ErrInvalidActorState
+	}
+	if !input.AmmoItemID.IsZero() {
+		if err := input.AmmoItemID.Validate(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

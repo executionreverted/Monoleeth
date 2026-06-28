@@ -89,13 +89,26 @@ func ExactPlayableBounds() Bounds {
 }
 
 func (bounds Bounds) ValidateExactPlayable() error {
+	if err := bounds.ValidatePlayable(); err != nil {
+		return err
+	}
+	if bounds != ExactPlayableBounds() {
+		return fmt.Errorf("bounds %+v must equal 0..10000: %w", bounds, ErrInvalidMapDefinition)
+	}
+	return nil
+}
+
+func (bounds Bounds) ValidatePlayable() error {
 	for _, value := range []float64{bounds.MinX, bounds.MinY, bounds.MaxX, bounds.MaxY} {
 		if !isFinite(value) {
 			return fmt.Errorf("bounds %+v: %w", bounds, ErrInvalidMapDefinition)
 		}
 	}
-	if bounds != ExactPlayableBounds() {
-		return fmt.Errorf("bounds %+v must equal 0..10000: %w", bounds, ErrInvalidMapDefinition)
+	if bounds.MinX != PlayableMinCoordinate || bounds.MinY != PlayableMinCoordinate {
+		return fmt.Errorf("bounds %+v min must equal 0,0: %w", bounds, ErrInvalidMapDefinition)
+	}
+	if bounds.MaxX <= bounds.MinX || bounds.MaxY <= bounds.MinY {
+		return fmt.Errorf("bounds %+v max must exceed min: %w", bounds, ErrInvalidMapDefinition)
 	}
 	return nil
 }
@@ -590,7 +603,7 @@ func validateMapDefinitionBasics(definition MapDefinition) error {
 	if err := validatePVPPolicy(definition.PVPPolicy); err != nil {
 		return err
 	}
-	if err := definition.Bounds.ValidateExactPlayable(); err != nil {
+	if err := definition.Bounds.ValidatePlayable(); err != nil {
 		return err
 	}
 	return nil

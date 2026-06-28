@@ -20,6 +20,7 @@ export interface HUDHandlers {
   onRepair(): void;
   onScan(): void;
   onStealthToggle(): void;
+  onCombatAmmoSelect(family: 'laser' | 'rocket' | 'rocket_launcher', itemID: string): void;
   onSelectTarget(entityID: string, source?: 'hud' | 'radar'): void;
   onCycleTarget(): void;
   onPortalEnter(portalID: string): void;
@@ -88,7 +89,13 @@ export type HUDWindowID = 'cargo' | 'economy' | 'quests' | 'intel' | 'systems' |
 export type HUDModalID = 'target' | 'planets' | 'ship' | 'planet-detail' | 'tutorial' | 'admin-content-module-edit';
 export type HUDHelpTopicID = 'inventory' | 'shop' | 'quests' | 'planets' | 'hangar' | 'chat' | 'social' | 'ops';
 export type QuickActionID = 'laser' | 'rocket' | 'scan' | 'stealth' | 'warp' | 'gather';
-export type QuickActionCommand = 'fire' | 'rocket' | 'scan' | 'stealth' | 'warp' | 'loot';
+export type QuickActionCommand = 'fire' | 'rocket' | 'scan' | 'stealth' | 'warp' | 'loot' | 'ammo';
+export type CombatAmmoFamily = 'laser' | 'rocket' | 'rocket_launcher';
+export interface QuickbarAmmoAssignment {
+  family: CombatAmmoFamily;
+  itemID: string;
+  label: string;
+}
 export type QuestBoardSummary = NonNullable<ClientState['questBoard']>;
 export type QuestOfferSummary = QuestBoardSummary['offers'][number];
 export type QuestSummary = QuestBoardSummary['active'][number];
@@ -132,6 +139,8 @@ export interface QuickActionState extends ActionState {
   commandOp: string | null;
   locked: boolean;
   state: 'ready' | 'pending' | 'cooldown' | 'blocked' | 'locked' | 'scanning';
+  ammoFamily?: CombatAmmoFamily;
+  itemID?: string;
 }
 
 export interface HUDPanelDefinition {

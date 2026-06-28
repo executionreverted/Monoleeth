@@ -57,6 +57,59 @@ export interface StarfieldDebugState {
   sampleTiles: Array<{ layer: StarfieldLayerID; mirrorX: boolean; mirrorY: boolean; screen: Vec2 }>;
 }
 
+export interface ProjectileDebugState {
+  id: string;
+  source: Vec2;
+  target: Vec2;
+  head: Vec2;
+  progress: number;
+  active: boolean;
+  alpha: number;
+  phase?: WorldFeedbackEffect['phase'];
+  sourceEntityID?: string;
+  targetEntityID?: string;
+}
+
+export function damageKindForEffect(effect: WorldFeedbackEffect): NonNullable<WorldFeedbackEffect['damageKind']> {
+  if (effect.damageKind) {
+    return effect.damageKind;
+  }
+  const shield = effect.shieldAmount ?? 0;
+  const hull = effect.hullAmount ?? 0;
+  if (shield > 0 && hull > 0) {
+    return 'mixed';
+  }
+  if (shield > 0) {
+    return 'shield';
+  }
+  return 'hull';
+}
+
+export function projectileDebugFromEffect(
+  effect: WorldFeedbackEffect,
+  now: number,
+  source: Vec2,
+  target: Vec2,
+): ProjectileDebugState | null {
+  if (effect.kind !== 'laser' || effect.expiresAt <= now) {
+    return null;
+  }
+  const progress = clamp((now - effect.createdAt) / PROJECTILE_TRAVEL_MS, 0, 1);
+  const totalProgress = clamp((now - effect.createdAt) / Math.max(1, effect.expiresAt - effect.createdAt), 0, 1);
+  return {
+    id: effect.id,
+    source,
+    target,
+    head: lerpVec(source, target, progress),
+    progress,
+    active: progress < 1,
+    alpha: clamp(1 - totalProgress, 0, 1),
+    phase: effect.phase,
+    sourceEntityID: effect.sourceEntityID ?? effect.sourceID,
+    targetEntityID: effect.targetEntityID ?? effect.targetID,
+  };
+}
+
 export function damageLabel(effect: WorldFeedbackEffect): string {
   if (typeof effect.amount === 'number') {
     return `-${effect.amount}`;

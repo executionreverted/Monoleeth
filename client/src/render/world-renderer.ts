@@ -7,7 +7,7 @@ import { WorldInputHandlers, WorldViewState } from './world-view';
 import type { EntityAssetDirectionCode } from './world-entity-asset-catalog';
 import { WORLD_RENDER_ASSETS, worldTextureKeyForAsset } from './world-renderer-assets';
 import { WorldRendererEntities } from './world-renderer-entities';
-import { labelColorForEntity, labelForEntity, StarfieldDebugState } from './world-renderer-types';
+import { labelColorForEntity, labelForEntity, ProjectileDebugState, StarfieldDebugState } from './world-renderer-types';
 
 export class WorldRenderer extends WorldRendererEntities {
   constructor(handlers: WorldInputHandlers) {
@@ -167,7 +167,7 @@ export class WorldRenderer extends WorldRendererEntities {
     displayPositions: Record<string, Vec2>;
     memoryMarkers: Array<{ id: string; detailID: string; label: string; position: Vec2; screen: Vec2; state: string }>;
     scanWaves: { active: boolean; screen: Vec2 | null; rings: Array<{ radius: number; alpha: number }> };
-    projectiles: Array<{ id: string; source: Vec2; target: Vec2; head: Vec2; progress: number; active: boolean; alpha: number }>;
+    projectiles: ProjectileDebugState[];
     renderedAssets: {
       loadedTextures: number;
       entitySprites: Array<{ entityID: string; assetKey: string; visible: boolean }>;

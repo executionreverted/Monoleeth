@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -103,22 +104,25 @@ func (runtime *Runtime) seedPremiumStock() error {
 
 func (runtime *Runtime) ensurePlayerEconomyLocked(playerID foundation.PlayerID) error {
 	if err := runtime.seedStarterWallet(playerID); err != nil {
-		return err
+		return fmt.Errorf("seed starter wallet: %w", err)
 	}
 	if err := runtime.seedPremiumEntitlement(playerID); err != nil {
-		return err
+		return fmt.Errorf("seed premium entitlement: %w", err)
 	}
 	if err := runtime.seedStarterModulesAndLoadout(playerID); err != nil {
-		return err
+		return fmt.Errorf("seed starter modules and loadout: %w", err)
+	}
+	if err := runtime.seedStarterAmmoInventory(playerID); err != nil {
+		return fmt.Errorf("seed starter ammo inventory: %w", err)
 	}
 	if err := runtime.refreshPlayerCombatStatsPayloadLocked(playerID); err != nil {
-		return err
+		return fmt.Errorf("refresh player combat stats: %w", err)
 	}
 	if err := runtime.seedE2EPlanetClaimProof(playerID); err != nil {
-		return err
+		return fmt.Errorf("seed e2e planet claim proof: %w", err)
 	}
 	if err := runtime.seedE2ERouteProof(playerID); err != nil {
-		return err
+		return fmt.Errorf("seed e2e route proof: %w", err)
 	}
 	state := runtime.players[playerID]
 	state.Wallet = runtime.walletSnapshotLocked(playerID)
@@ -131,13 +135,19 @@ func (runtime *Runtime) seedStarterModulesAndLoadout(playerID foundation.PlayerI
 	if err := runtime.LoadoutStore.SetActiveShip(playerID, runtime.starterContent.ShipID); err != nil {
 		return err
 	}
+	current, err := runtime.LoadoutStore.EquippedModules(playerID, runtime.starterContent.ShipID)
+	if err != nil {
+		return err
+	}
+	if starterLoadoutHasRequiredSlots(current) {
+		return nil
+	}
 	items, err := runtime.seedStarterModuleInventory(playerID)
 	if err != nil {
 		return err
 	}
-	current, err := runtime.LoadoutStore.EquippedModules(playerID, runtime.starterContent.ShipID)
-	if err != nil {
-		return err
+	if starterModuleItemsAlreadyEquipped(items) {
+		return nil
 	}
 	equipped, changed, err := runtime.starterLoadoutEquippedModules(playerID, items, current)
 	if err != nil {
@@ -152,6 +162,57 @@ func (runtime *Runtime) seedStarterModulesAndLoadout(playerID foundation.PlayerI
 		RequestID: foundation.RequestID("starter-loadout-" + playerID.String()),
 		Equipped:  equipped,
 	})
+}
+
+func starterLoadoutHasRequiredSlots(current []modules.EquippedModule) bool {
+	hasOffensive := false
+	hasUtility := false
+	for _, equipped := range current {
+		switch equipped.SlotID {
+		case modules.ModuleSlotOffensive1:
+			hasOffensive = true
+		case modules.ModuleSlotUtility1:
+			hasUtility = true
+		}
+	}
+	return hasOffensive && hasUtility
+}
+
+func starterModuleItemsAlreadyEquipped(items map[foundation.ItemID]economy.InstanceItem) bool {
+	for _, item := range items {
+		if item.Location.Kind == economy.LocationKindShipEquipped {
+			return true
+		}
+	}
+	return false
+}
+
+func (runtime *Runtime) seedStarterAmmoInventory(playerID foundation.PlayerID) error {
+	const starterAmmoQuantity int64 = 10000
+	definition, ok := runtime.itemCatalog["ammunition_laser_lcb_10"]
+	if !ok {
+		return nil
+	}
+	location, err := economy.NewItemLocation(economy.LocationKindAccountInventory, playerID.String())
+	if err != nil {
+		return err
+	}
+	if runtime.Inventory.TotalItemQuantity(playerID, definition.ItemID, location) > 0 {
+		return nil
+	}
+	seedRef, err := foundation.AdminCompensationIdempotencyKey(playerID.String(), "starter-ammo-ammunition_laser_lcb_10")
+	if err != nil {
+		return err
+	}
+	_, err = runtime.Inventory.AddItem(economy.AddItemInput{
+		PlayerID:       playerID,
+		ItemDefinition: definition,
+		Quantity:       starterAmmoQuantity,
+		Location:       location,
+		Reason:         runtimeSeedLedgerReason,
+		ReferenceKey:   seedRef,
+	})
+	return err
 }
 
 func (runtime *Runtime) starterLoadoutEquippedModules(
@@ -226,6 +287,21 @@ func (runtime *Runtime) seedStarterModuleInventory(playerID foundation.PlayerID)
 		if !ok {
 			return nil, fmt.Errorf("starter module item %q: %w", itemID, modules.ErrUnknownModuleDefinition)
 		}
+		if existing, ok := runtime.existingStarterModuleItem(playerID, itemID, location); ok {
+			if existing.Location.Kind == economy.LocationKindShipEquipped {
+				items[itemID] = existing
+				continue
+			}
+			item, err := runtime.Inventory.SystemSetInstanceDurability(playerID, existing.ItemInstanceID, moduleDefinition.Durability.Max)
+			if err != nil {
+				return nil, err
+			}
+			if err := runtime.LoadoutStore.PutModuleItem(item); err != nil {
+				return nil, err
+			}
+			items[itemID] = item
+			continue
+		}
 		seedRef, err := foundation.AdminCompensationIdempotencyKey(playerID.String(), "starter-module-"+itemID.String())
 		if err != nil {
 			return nil, err
@@ -257,38 +333,58 @@ func (runtime *Runtime) seedStarterModuleInventory(playerID foundation.PlayerID)
 	return items, nil
 }
 
+func (runtime *Runtime) existingStarterModuleItem(playerID foundation.PlayerID, itemID foundation.ItemID, location economy.ItemLocation) (economy.InstanceItem, bool) {
+	for _, item := range runtime.Inventory.InstanceItems() {
+		if item.OwnerPlayerID == playerID && item.ItemID == itemID && (item.Location == location || item.Location.Kind == economy.LocationKindShipEquipped) {
+			return item, true
+		}
+	}
+	return economy.InstanceItem{}, false
+}
+
 func (runtime *Runtime) seedStarterWallet(playerID foundation.PlayerID) error {
 	creditsRef, err := foundation.AdminCompensationIdempotencyKey(playerID.String(), "starter-credits")
 	if err != nil {
 		return err
 	}
-	if _, err := runtime.Wallet.CreditWallet(economy.CreditWalletInput{
-		PlayerID:     playerID,
-		Currency:     economy.CurrencyBucketCredits,
-		Amount:       runtime.starterContent.WalletCredits,
-		Reason:       runtimeSeedLedgerReason,
-		ReferenceKey: creditsRef,
-	}); err != nil {
-		return err
+	if current := runtime.Wallet.Balance(playerID, economy.CurrencyBucketCredits); current < runtime.starterContent.WalletCredits {
+		if _, err := runtime.Wallet.CreditWallet(economy.CreditWalletInput{
+			PlayerID:     playerID,
+			Currency:     economy.CurrencyBucketCredits,
+			Amount:       runtime.starterContent.WalletCredits - current,
+			Reason:       runtimeSeedLedgerReason,
+			ReferenceKey: creditsRef,
+		}); err != nil {
+			return err
+		}
 	}
 	premiumRef, err := foundation.AdminCompensationIdempotencyKey(playerID.String(), "starter-premium-paid")
 	if err != nil {
 		return err
 	}
-	_, err = runtime.Wallet.CreditWallet(economy.CreditWalletInput{
-		PlayerID:     playerID,
-		Currency:     economy.CurrencyBucketPremiumPaid,
-		Amount:       runtime.starterContent.WalletPremiumPaid,
-		Reason:       runtimeSeedLedgerReason,
-		ReferenceKey: premiumRef,
-	})
-	return err
+	if current := runtime.Wallet.Balance(playerID, economy.CurrencyBucketPremiumPaid); current < runtime.starterContent.WalletPremiumPaid {
+		_, err = runtime.Wallet.CreditWallet(economy.CreditWalletInput{
+			PlayerID:     playerID,
+			Currency:     economy.CurrencyBucketPremiumPaid,
+			Amount:       runtime.starterContent.WalletPremiumPaid - current,
+			Reason:       runtimeSeedLedgerReason,
+			ReferenceKey: premiumRef,
+		})
+		return err
+	}
+	return nil
 }
 
 func (runtime *Runtime) seedPremiumEntitlement(playerID foundation.PlayerID) error {
+	entitlementID := premium.EntitlementID("entitlement-starter-premium-" + playerID.String())
+	for _, entitlement := range runtime.Premium.Entitlements() {
+		if entitlement.ID == entitlementID && entitlement.PlayerID == playerID {
+			return nil
+		}
+	}
 	now := runtime.clock.Now()
 	_, err := runtime.Premium.CreateEntitlement(premium.CreateEntitlementInput{
-		EntitlementID: premium.EntitlementID("entitlement-starter-premium-" + playerID.String()),
+		EntitlementID: entitlementID,
 		PlayerID:      playerID,
 		Type:          premium.EntitlementTypePremiumCurrencyPack,
 		Provider: premium.ProviderReference{
@@ -302,6 +398,9 @@ func (runtime *Runtime) seedPremiumEntitlement(playerID foundation.PlayerID) err
 		CreatedAt:           now,
 		ProviderConfirmedAt: now,
 	})
+	if errors.Is(err, economy.ErrIdempotencyKeyConflict) {
+		return nil
+	}
 	return err
 }
 

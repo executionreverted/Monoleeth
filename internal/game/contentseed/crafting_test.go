@@ -50,7 +50,7 @@ func TestBuildMVPSnapshotRuntimeRowsCarryLegacyBalanceTerms(t *testing.T) {
 	}
 	text := strings.ToLower(string(raw))
 	for _, expected := range []string{
-		"content_old_darkorbit_2009_seed_v1",
+		"content_kalaazu_starter_seed_v1",
 		"phoenix",
 		"lf-1",
 		"sg3n-a01",
@@ -63,6 +63,7 @@ func TestBuildMVPSnapshotRuntimeRowsCarryLegacyBalanceTerms(t *testing.T) {
 		"xenomit",
 		"lordakia",
 		"saimon",
+		"streuner",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("snapshot missing expected legacy balance term %q", expected)

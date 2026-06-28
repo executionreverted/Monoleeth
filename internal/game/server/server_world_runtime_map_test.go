@@ -169,10 +169,7 @@ func TestMultiTabAttachDoesNotDuplicatePlayerEntity(t *testing.T) {
 	secondEvents := readBootstrapEvents(t, second)
 
 	for _, events := range [][]realtime.EventEnvelope{firstEvents, secondEvents} {
-		var snapshot worldSnapshotPayload
-		if err := json.Unmarshal(events[len(events)-1].Payload, &snapshot); err != nil {
-			t.Fatalf("decode world snapshot: %v", err)
-		}
+		snapshot := decodeWorldSnapshotForTest(t, events)
 		playerCount := 0
 		for _, entity := range snapshot.Entities {
 			if entity.Type == "player" {

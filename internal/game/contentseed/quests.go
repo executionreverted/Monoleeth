@@ -196,12 +196,12 @@ func questObjectiveRow(objective quests.Objective) (content.QuestObjectiveRow, e
 
 func seededQuestNPCType(npcType string) string {
 	switch npcType {
-	case "pirate":
-		return "training_drone"
-	case "raider":
-		return "border_raider_drone"
-	case "void_raider":
-		return "outer_ring_scout_drone"
+	case "pirate", "training_drone":
+		return "streuner"
+	case "raider", "border_raider_drone":
+		return "saimon"
+	case "void_raider", "outer_ring_scout_drone":
+		return "lordakia"
 	default:
 		return npcType
 	}

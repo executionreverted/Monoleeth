@@ -25,6 +25,10 @@ const (
 	OperationDebugSpawnNPC             Operation = "debug_spawn_npc"
 	OperationDebugSnapshot             Operation = "debug_snapshot"
 	OperationCombatUseSkill            Operation = "combat.use_skill"
+	OperationCombatStartAttack         Operation = "combat.start_attack"
+	OperationCombatStopAttack          Operation = "combat.stop_attack"
+	OperationCombatState               Operation = "combat.state"
+	OperationCombatSelectAmmo          Operation = "combat.select_ammo"
 	OperationLootPickup                Operation = "loot.pickup"
 	OperationShieldRepairTick          Operation = "repair.shield_tick"
 	OperationDeathRepairQuote          Operation = "death.repair_quote"
@@ -133,6 +137,11 @@ const (
 	EventCombatDamage          ClientEventType = "combat.damage"
 	EventCombatMiss            ClientEventType = "combat.miss"
 	EventCombatCooldownStarted ClientEventType = "combat.cooldown_started"
+	EventCombatAttackStarted   ClientEventType = "combat.attack_started"
+	EventCombatAttackStopped   ClientEventType = "combat.attack_stopped"
+	EventCombatShotStarted     ClientEventType = "combat.shot_started"
+	EventCombatShotResolved    ClientEventType = "combat.shot_resolved"
+	EventCombatStateSnapshot   ClientEventType = "combat.state_snapshot"
 	EventCombatNPCKilled       ClientEventType = "combat.npc_killed"
 	EventLootCreated           ClientEventType = "loot.created"
 	EventLootUpdated           ClientEventType = "loot.updated"
@@ -238,6 +247,22 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationCombatUseSkill: {
 		Operation:        OperationCombatUseSkill,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationCombatStartAttack: {
+		Operation:        OperationCombatStartAttack,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationCombatStopAttack: {
+		Operation:        OperationCombatStopAttack,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationCombatState: {
+		Operation:        OperationCombatState,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationCombatSelectAmmo: {
+		Operation:        OperationCombatSelectAmmo,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationLootPickup: {

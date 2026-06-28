@@ -787,7 +787,7 @@ func (worker *Worker) validateEnemyPoolDefinitionOwnership(definition worldmaps.
 	if definition.ZoneID != worker.zoneID {
 		return fmt.Errorf("enemy pools map %q zone %q not owned by worker zone %q: %w", definition.InternalMapID, definition.ZoneID, worker.zoneID, ErrInvalidWorkerConfig)
 	}
-	if err := definition.Bounds.ValidateExactPlayable(); err != nil {
+	if err := definition.Bounds.ValidatePlayable(); err != nil {
 		return err
 	}
 	return nil

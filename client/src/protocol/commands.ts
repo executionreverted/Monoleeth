@@ -63,6 +63,27 @@ export class CommandBuilder {
     });
   }
 
+  combatStartAttack(targetID: string): RequestEnvelope<{ target_id: string }> {
+    return this.build(OPERATIONS.combatStartAttack, {
+      target_id: targetID,
+    });
+  }
+
+  combatStopAttack(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.combatStopAttack, {});
+  }
+
+  combatState(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.combatState, {});
+  }
+
+  combatSelectAmmo(family: 'laser' | 'rocket' | 'rocket_launcher', itemID: string): RequestEnvelope<{ family: string; item_id: string }> {
+    return this.build(OPERATIONS.combatSelectAmmo, {
+      family,
+      item_id: itemID,
+    });
+  }
+
   lootPickup(dropID: string): RequestEnvelope<{ drop_id: string }> {
     return this.build(OPERATIONS.lootPickup, {
       drop_id: dropID,

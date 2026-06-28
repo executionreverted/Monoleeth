@@ -8,12 +8,19 @@ import (
 )
 
 func TestContentTableNameAllowlist(t *testing.T) {
-	table, err := ContentTableName(content.ContentTypeCraftRecipe)
-	if err != nil {
-		t.Fatalf("ContentTableName(craft) error = %v, want nil", err)
+	tests := map[content.ContentType]string{
+		content.ContentTypeCraftRecipe: "content_craft_recipes",
+		content.ContentTypeMap:         "content_maps",
+		content.ContentTypeMapPortal:   "content_map_portals",
 	}
-	if table != "content_craft_recipes" {
-		t.Fatalf("ContentTableName(craft) = %q, want content_craft_recipes", table)
+	for contentType, want := range tests {
+		table, err := ContentTableName(contentType)
+		if err != nil {
+			t.Fatalf("ContentTableName(%s) error = %v, want nil", contentType, err)
+		}
+		if table != want {
+			t.Fatalf("ContentTableName(%s) = %q, want %s", contentType, table, want)
+		}
 	}
 }
 

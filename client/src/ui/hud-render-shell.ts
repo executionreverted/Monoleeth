@@ -19,14 +19,6 @@ export function hudShellHTML(): string {
           <div class="top-status__cell" data-icon="credits"><img class="top-status__icon" src="${escapeHTML(creditsIconURL)}" alt="" aria-hidden="true" draggable="false" /><span>Credits</span><strong data-top-credits>${lockedValue()}</strong></div>
           <div class="top-status__cell" data-icon="cap"><img class="top-status__icon" src="${escapeHTML(capacityIconURL)}" alt="" aria-hidden="true" draggable="false" /><span>Cap</span><strong data-top-cap>${lockedValue()}</strong></div>
         </div>
-        <div class="toolbar" aria-label="Connection and intent controls">
-          <button class="tool-button" data-action="stop" type="button" title="Stop">Stop</button>
-          <button class="tool-button" data-action="sync" type="button" title="Request snapshot">Sync</button>
-          <button class="tool-button tool-button--locked" type="button" disabled title="Mail link unavailable">Mail</button>
-          <button class="tool-button" data-action="open-window" data-panel-id="chat" type="button" title="Open chat">Chat</button>
-          <button class="tool-button" data-action="open-window" data-panel-id="social" type="button" title="Open social">Social</button>
-          <button class="tool-button" data-action="logout" type="button" title="Logout">Logout</button>
-        </div>
       </header>
       <div class="hud__movement-eta" data-movement-eta></div>
       <aside class="hud__rail hud__rail--left">

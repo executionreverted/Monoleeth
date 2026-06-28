@@ -45,7 +45,7 @@ export class RealtimeClient {
         return;
       }
       this.socket = null;
-      this.options.onStatus(event.code === 1008 ? 'auth_expired' : 'offline', {
+      this.options.onStatus(statusForCloseEvent(event.code, event.reason), {
         code: event.code,
         reason: event.reason,
       });
@@ -108,4 +108,8 @@ export class RealtimeClient {
   isConnected(): boolean {
     return this.socket?.readyState === WebSocket.OPEN;
   }
+}
+
+export function statusForCloseEvent(code: number, reason: string): ConnectionStatus {
+  return code === 1008 && reason === 'session invalid' ? 'auth_expired' : 'offline';
 }

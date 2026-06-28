@@ -113,6 +113,17 @@ func TestConfigFromEnvPlaytestSeedOptIn(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigKeepsGameplayWebSocketIdleSafe(t *testing.T) {
+	config := DefaultConfig().withDefaults()
+
+	if config.SocketReadTimeout != 0 {
+		t.Fatalf("SocketReadTimeout = %s, want 0 so idle gameplay sockets stay open", config.SocketReadTimeout)
+	}
+	if config.SocketWriteTimeout <= 0 {
+		t.Fatal("SocketWriteTimeout <= 0, want bounded server writes")
+	}
+}
+
 func TestConfigFromEnvContentDB(t *testing.T) {
 	t.Setenv(contentdb.EnvDatabaseURL, " postgres://gameproject:pw@localhost:5432/gameproject?sslmode=disable ")
 	t.Setenv(contentdb.EnvMode, string(contentdb.ContentModeRequired))

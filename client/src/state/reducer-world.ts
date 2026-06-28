@@ -15,6 +15,7 @@ import type {
 } from './types';
 import {
   booleanField,
+  initialCombatEngagement,
   isJsonObject,
   initialScanMode,
   isKnownEntityType,
@@ -67,6 +68,7 @@ export function clearOriginMapLiveState(state: ClientState): ClientState {
     portalCooldowns: {},
     knownLoot: {},
     worldEffects: [],
+    combatEngagement: initialCombatEngagement(),
     skillCooldowns: {},
     planetIntel: state.planetIntel
       ? {
@@ -191,6 +193,11 @@ function isMapScopedClientEvent(eventType: string): boolean {
     eventType === CLIENT_EVENTS.combatDamage ||
     eventType === CLIENT_EVENTS.combatMiss ||
     eventType === CLIENT_EVENTS.combatCooldownStarted ||
+    eventType === CLIENT_EVENTS.combatAttackStarted ||
+    eventType === CLIENT_EVENTS.combatAttackStopped ||
+    eventType === CLIENT_EVENTS.combatShotStarted ||
+    eventType === CLIENT_EVENTS.combatShotResolved ||
+    eventType === CLIENT_EVENTS.combatStateSnapshot ||
     eventType === CLIENT_EVENTS.combatNPCKilled ||
     eventType === CLIENT_EVENTS.lootCreated ||
     eventType === CLIENT_EVENTS.lootUpdated ||
@@ -326,7 +333,7 @@ export function feedbackEffect(
     stringField(envelope.payload, 'entity_id') ??
     stringField(envelope.payload, 'drop_id') ??
     undefined;
-  const sourceID = selfEntityID(state);
+  const sourceID = stringField(envelope.payload, 'source_id') ?? selfEntityID(state);
   const position =
     (isVec2(envelope.payload.position) ? envelope.payload.position : null) ??
     (targetID ? state.visibleEntities[targetID]?.position : undefined) ??
@@ -341,8 +348,12 @@ export function feedbackEffect(
   return {
     id: `${envelope.event_id}:${kind}`,
     kind,
+    phase: feedbackPhase(envelope.type, kind),
+    damageKind: kind === 'damage' ? damageKindFromAmounts(envelope.payload) : undefined,
     targetID,
-    sourceID: kind === 'laser' ? sourceID ?? undefined : undefined,
+    targetEntityID: targetID,
+    sourceID: sourceID ?? undefined,
+    sourceEntityID: sourceID ?? undefined,
     position: position ? { ...position } : undefined,
     sourcePosition: kind === 'laser' && sourcePosition ? { ...sourcePosition } : undefined,
     amount: roundedOptional(envelope.payload, 'amount'),
@@ -353,6 +364,37 @@ export function feedbackEffect(
     createdAt,
     expiresAt: createdAt + feedbackDuration(kind),
   };
+}
+
+function feedbackPhase(eventType: string, kind: WorldFeedbackEffect['kind']): WorldFeedbackEffect['phase'] | undefined {
+  if (eventType === CLIENT_EVENTS.combatShotStarted) {
+    return 'started';
+  }
+  if (
+    eventType === CLIENT_EVENTS.combatShotResolved ||
+    eventType === CLIENT_EVENTS.combatDamage ||
+    eventType === CLIENT_EVENTS.combatMiss ||
+    kind === 'damage' ||
+    kind === 'miss'
+  ) {
+    return 'resolved';
+  }
+  return undefined;
+}
+
+function damageKindFromAmounts(payload: JsonObject): WorldFeedbackEffect['damageKind'] | undefined {
+  const shield = roundedOptional(payload, 'shield_amount') ?? 0;
+  const hull = roundedOptional(payload, 'hull_amount') ?? 0;
+  if (shield > 0 && hull > 0) {
+    return 'mixed';
+  }
+  if (shield > 0) {
+    return 'shield';
+  }
+  if (hull > 0 || (roundedOptional(payload, 'amount') ?? 0) > 0) {
+    return 'hull';
+  }
+  return undefined;
 }
 
 function feedbackDuration(kind: WorldFeedbackEffect['kind']): number {

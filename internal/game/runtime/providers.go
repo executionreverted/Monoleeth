@@ -415,6 +415,8 @@ func applyFlatModuleStat(flat *stats.FlatStats, stat modules.StatKey, value floa
 		flat.Combat.WeaponRange += value
 	case modules.StatAccuracy:
 		flat.Combat.Accuracy += value
+	case modules.StatSpeed:
+		flat.Core.Speed += value
 	case modules.StatShieldMax:
 		flat.Core.ShieldMax += value
 	case modules.StatShieldRegen:
@@ -444,6 +446,8 @@ func applyPercentModuleStat(percent *stats.PercentStats, stat modules.StatKey, v
 		percent.Combat.WeaponRange += value
 	case modules.StatAccuracy:
 		percent.Combat.Accuracy += value
+	case modules.StatSpeed:
+		percent.Core.Speed += value
 	case modules.StatShieldMax:
 		percent.Core.ShieldMax += value
 	case modules.StatShieldRegen:

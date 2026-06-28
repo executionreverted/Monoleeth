@@ -76,6 +76,29 @@ func TestExecuteBasicAttackSpendsExactEnergyAndStartsCooldown(t *testing.T) {
 	}
 }
 
+func TestCanBasicAttackValidatesWithoutMutation(t *testing.T) {
+	service := newCombatService(t, []float64{0})
+	addDefaultActors(t, service)
+	beforeAttacker, _ := service.Actor("player_entity_1")
+	beforeTarget, _ := service.Actor("npc_1")
+
+	if err := service.CanBasicAttack(combat.BasicAttackInput{AttackerID: "player_entity_1", TargetID: "npc_1"}); err != nil {
+		t.Fatalf("CanBasicAttack() error = %v, want nil", err)
+	}
+
+	afterAttacker, _ := service.Actor("player_entity_1")
+	afterTarget, _ := service.Actor("npc_1")
+	if afterAttacker.Energy != beforeAttacker.Energy {
+		t.Fatalf("CanBasicAttack mutated energy: got %v, want %v", afterAttacker.Energy, beforeAttacker.Energy)
+	}
+	if !afterAttacker.Cooldowns.Ready(combat.BasicLaserCooldownKey, time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("CanBasicAttack started cooldown: %+v", afterAttacker.Cooldowns)
+	}
+	if afterTarget.HP != beforeTarget.HP || afterTarget.Shield != beforeTarget.Shield {
+		t.Fatalf("CanBasicAttack mutated target: after hp/shield=%v/%v before=%v/%v", afterTarget.HP, afterTarget.Shield, beforeTarget.HP, beforeTarget.Shield)
+	}
+}
+
 func TestExecuteBasicAttackRejectsEnergyShortageBeforeMutation(t *testing.T) {
 	service := newCombatService(t, []float64{0})
 	addDefaultActors(t, service)
@@ -188,6 +211,30 @@ func TestExecuteBasicAttackAppliesShieldOverflowAndKillsNPCOnce(t *testing.T) {
 	_, err = service.ExecuteBasicAttack(combat.BasicAttackInput{AttackerID: "player_entity_1", TargetID: "npc_1"})
 	if !errors.Is(err, combat.ErrTargetDead) {
 		t.Fatalf("second ExecuteBasicAttack() error = %v, want ErrTargetDead", err)
+	}
+}
+
+func TestExecuteBasicAttackAppliesServerResolvedAmmoMultiplier(t *testing.T) {
+	service := newCombatService(t, []float64{0})
+	addDefaultActors(t, service)
+	target, _ := service.Actor("npc_1")
+	target.Shield = 0
+	target.HP = 500
+	if err := service.UpsertActor(target); err != nil {
+		t.Fatalf("UpsertActor(target) error = %v", err)
+	}
+
+	result, err := service.ExecuteBasicAttack(combat.BasicAttackInput{
+		AttackerID:       "player_entity_1",
+		TargetID:         "npc_1",
+		DamageMultiplier: 3,
+		AmmoItemID:       "ammunition_laser_mcb_50",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteBasicAttack() error = %v", err)
+	}
+	if result.Damage != 300 || result.HPDamage != 300 || result.AmmoItemID != "ammunition_laser_mcb_50" {
+		t.Fatalf("result = %+v, want 3x ammo damage and ammo item", result)
 	}
 }
 

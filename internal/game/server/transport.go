@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -51,6 +52,7 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := server.runtime.ensurePlayerSession(resolved); err != nil {
+		log.Printf("websocket session bootstrap failed player=%s session=%s: %v", resolved.PlayerID, resolved.SessionID, err)
 		writeHTTPError(w, foundation.NewDomainError(foundation.CodeInternal, "Session bootstrap failed.", foundation.WithCause(err)))
 		return
 	}
@@ -251,6 +253,9 @@ func (client *clientConnection) waitForWriter(timeout time.Duration) bool {
 }
 
 func (server *Server) readMessage(conn *websocket.Conn) (websocket.MessageType, []byte, error) {
+	if server.config.SocketReadTimeout <= 0 {
+		return conn.Read(context.Background())
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), server.config.SocketReadTimeout)
 	defer cancel()
 	return conn.Read(ctx)

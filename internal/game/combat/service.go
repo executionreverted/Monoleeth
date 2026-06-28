@@ -114,6 +114,19 @@ func (service *Service) RegenerateEnergy(entityID world.EntityID, elapsed time.D
 	return cloneActor(actor), nil
 }
 
+// CanBasicAttack validates a basic laser attack without mutating actor state.
+func (service *Service) CanBasicAttack(input BasicAttackInput) error {
+	if err := input.validate(); err != nil {
+		return err
+	}
+
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	_, _, err := service.validatedAttackActorsLocked(input, service.clock.Now())
+	return err
+}
+
 // ExecuteBasicAttack validates and resolves one server-authoritative basic laser attack.
 func (service *Service) ExecuteBasicAttack(input BasicAttackInput) (BasicAttackResult, error) {
 	if err := input.validate(); err != nil {
@@ -133,6 +146,10 @@ func (service *Service) ExecuteBasicAttack(input BasicAttackInput) (BasicAttackR
 	}()
 
 	now := service.clock.Now()
+	damageMultiplier := input.DamageMultiplier
+	if damageMultiplier == 0 {
+		damageMultiplier = 1
+	}
 	attacker, target, err := service.validatedAttackActorsLocked(input, now)
 	if err != nil {
 		return BasicAttackResult{}, err
@@ -150,9 +167,11 @@ func (service *Service) ExecuteBasicAttack(input BasicAttackInput) (BasicAttackR
 	result := BasicAttackResult{
 		Hit:             rollHit(service.rng, attacker, target),
 		CooldownReadyAt: readyAt,
+		AmmoItemID:      input.AmmoItemID,
+		AmmoFallback:    input.AmmoFallback,
 	}
 	if result.Hit {
-		result.Damage, result.ShieldDamage, result.HPDamage = applyLaserDamage(&target, attacker)
+		result.Damage, result.ShieldDamage, result.HPDamage = applyLaserDamage(&target, attacker, damageMultiplier)
 		recordContribution(&target, attacker, result.Damage)
 		if target.HP <= 0 && !target.Dead {
 			target.Dead = true
@@ -284,7 +303,7 @@ func rollHit(rng foundation.RNG, attacker ActorState, target ActorState) bool {
 	return rng.Float64() <= hitChance
 }
 
-func applyLaserDamage(target *ActorState, attacker ActorState) (total float64, shieldDamage float64, hpDamage float64) {
+func applyLaserDamage(target *ActorState, attacker ActorState, damageMultiplier float64) (total float64, shieldDamage float64, hpDamage float64) {
 	effectiveResist := target.Stats.Stats.Combat.ResistLaser - attacker.Stats.Stats.Combat.Penetration
 	if effectiveResist < 0 {
 		effectiveResist = 0
@@ -292,7 +311,7 @@ func applyLaserDamage(target *ActorState, attacker ActorState) (total float64, s
 	if effectiveResist > 0.95 {
 		effectiveResist = 0.95
 	}
-	total = attacker.Stats.Stats.Combat.WeaponDamage * (1 - effectiveResist)
+	total = attacker.Stats.Stats.Combat.WeaponDamage * damageMultiplier * (1 - effectiveResist)
 	if total < 0 {
 		total = 0
 	}
@@ -375,17 +394,21 @@ func visibilityEntityFromActor(actor ActorState) visibility.Entity {
 
 func basicAttackPayload(input BasicAttackInput, result BasicAttackResult) any {
 	return struct {
-		AttackerID world.EntityID `json:"attacker_id"`
-		TargetID   world.EntityID `json:"target_id"`
-		Hit        bool           `json:"hit"`
-		Damage     float64        `json:"damage"`
-		Killed     bool           `json:"killed"`
+		AttackerID   world.EntityID    `json:"attacker_id"`
+		TargetID     world.EntityID    `json:"target_id"`
+		Hit          bool              `json:"hit"`
+		Damage       float64           `json:"damage"`
+		Killed       bool              `json:"killed"`
+		AmmoItemID   foundation.ItemID `json:"ammo_item_id,omitempty"`
+		AmmoFallback bool              `json:"ammo_fallback,omitempty"`
 	}{
-		AttackerID: input.AttackerID,
-		TargetID:   input.TargetID,
-		Hit:        result.Hit,
-		Damage:     result.Damage,
-		Killed:     result.Killed,
+		AttackerID:   input.AttackerID,
+		TargetID:     input.TargetID,
+		Hit:          result.Hit,
+		Damage:       result.Damage,
+		Killed:       result.Killed,
+		AmmoItemID:   result.AmmoItemID,
+		AmmoFallback: result.AmmoFallback,
 	}
 }
 

@@ -124,6 +124,7 @@ function testHandlers(): HUDHandlers {
     onRepair: vi.fn(),
     onScan: vi.fn(),
     onStealthToggle: vi.fn(),
+    onCombatAmmoSelect: vi.fn(),
     onSelectTarget: vi.fn(),
     onCycleTarget: vi.fn(),
     onPortalEnter: vi.fn(),

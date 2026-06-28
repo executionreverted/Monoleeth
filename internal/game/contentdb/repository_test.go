@@ -729,6 +729,37 @@ func appendSeedMapRows(t *testing.T, snapshot *content.Snapshot, definition worl
 	}
 }
 
+func TestRepositoryMapSnapshotRowsControlRuntimeMapShell(t *testing.T) {
+	snapshot := seedSnapshot(t)
+	for _, definition := range mapShellDefinitions(repositoryTestWorldID) {
+		row := mapDefinitionMapRowFromDefinition(definition)
+		if definition.InternalMapID == worldmaps.StarterMapID {
+			row.DisplayName = "Kalaazu 1-1"
+			row.Bounds = worldmaps.Bounds{MinX: 0, MinY: 0, MaxX: 20800, MaxY: 12800}
+		}
+		snapshot.Maps = append(snapshot.Maps, testSnapshotRow(t, definition.InternalMapID.String(), row))
+		for _, portal := range definition.Portals {
+			snapshot.MapPortals = append(snapshot.MapPortals, testSnapshotRow(t, qualifiedMapContentID(definition.InternalMapID, portal.PortalID.String()), mapPortalMapRowFromDefinition(portal)))
+		}
+	}
+
+	bundle, err := loadSnapshotThroughContent(t, snapshot)
+	if err != nil {
+		t.Fatalf("LoadPublishedContent(map shell rows) error = %v, want nil", err)
+	}
+	definition, ok := bundle.Maps.Get(worldmaps.StarterMapID)
+	if !ok {
+		t.Fatal("starter map missing from mapped catalog")
+	}
+	if definition.DisplayName != "Kalaazu 1-1" || definition.Bounds.MaxX != 20800 || definition.Bounds.MaxY != 12800 {
+		t.Fatalf("starter map shell = %+v, want DB-authored display/bounds", definition)
+	}
+	portal, ok := bundle.Maps.Portal(worldmaps.StarterMapID, "east_gate")
+	if !ok || portal.DestinationMapID != "map_1_2" {
+		t.Fatalf("starter portal = %+v ok=%v, want DB-authored map_1_2 portal", portal, ok)
+	}
+}
+
 func npcTemplateMapRowFromDefinition(mapID worldmaps.MapID, template worldmaps.NPCStatTemplate) npcTemplateMapRow {
 	return npcTemplateMapRow{
 		MapID:          mapID,
@@ -747,6 +778,50 @@ func npcTemplateMapRowFromDefinition(mapID worldmaps.MapID, template worldmaps.N
 		RadarSignature: template.RadarSignature,
 		Speed:          template.Speed,
 		XPValue:        template.XPValue,
+	}
+}
+
+func mapDefinitionMapRowFromDefinition(definition worldmaps.MapDefinition) mapDefinitionMapRow {
+	row := mapDefinitionMapRow{
+		MapID:          definition.InternalMapID,
+		PublicMapKey:   definition.PublicMapKey,
+		DisplayName:    definition.DisplayName,
+		Region:         definition.Region,
+		RiskBand:       definition.RiskBand,
+		PVPPolicy:      definition.PVPPolicy,
+		VisualThemeKey: definition.VisualThemeKey,
+		Bounds:         definition.Bounds,
+	}
+	for _, spawn := range definition.SpawnPoints {
+		row.SpawnPoints = append(row.SpawnPoints, spawnPointMapRow{
+			SpawnID:  spawn.SpawnID,
+			Position: spawn.Position,
+			Label:    spawn.Label,
+		})
+	}
+	for _, safeZone := range definition.SafeZones {
+		row.SafeZones = append(row.SafeZones, safeZoneMapRow{
+			SafeZoneID:    safeZone.SafeZoneID,
+			Center:        safeZone.Center,
+			Radius:        safeZone.Radius,
+			DisplayName:   safeZone.DisplayName,
+			BlocksPVP:     safeZone.BlocksPVP,
+			HangarActions: safeZone.HangarActions,
+		})
+	}
+	return row
+}
+
+func mapPortalMapRowFromDefinition(portal worldmaps.PortalDefinition) mapPortalMapRow {
+	return mapPortalMapRow{
+		PortalID:           portal.PortalID,
+		SourceMapID:        portal.SourceMapID,
+		SourcePosition:     portal.SourcePosition,
+		InteractionRadius:  portal.InteractionRadius,
+		DestinationMapID:   portal.DestinationMapID,
+		DestinationSpawnID: portal.DestinationSpawnID,
+		DisplayName:        portal.DisplayName,
+		Visible:            portal.Visible,
 	}
 }
 

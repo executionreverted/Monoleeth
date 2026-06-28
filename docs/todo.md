@@ -103,17 +103,27 @@ for phase status; this file is a compact pending-work index.
   keeps visibility, cooldown, damage, death, repair, and snapshot truth. Map
   enemy content now rejects incomplete per-map pools/profiles, unreferenced
   NPC stat/drop/aggro/leash rows, missing pool refs, and invalid monster stat
-  values before runtime starts. Empty content DBs now seed the Old DarkOrbit
-  2009 balance slice for XP, ships, modules, NPC stats, item/shop rows, loot
-  tables, cargo-only ore resources, maps, recipes, production buildings, and
-  quests; NPC ore drops go to ship cargo and ore resources are not shop
-  products. Scanner config, starter config, route policy, production rules, and
-  combat rules now have first-class snapshot rows as well; typed defaults remain
-  only as first-run seed builders and explicit test helpers. Next work: expand
-  draft / publish / rollback tooling and build the admin CMS UI for monsters,
-  drop tables, item stats, recipes, map pools, and planet/scanner tuning. Root
-  browser demo runtime mode has been removed, so CMS UI smoke must use real
-  authenticated server/admin state.
+  values before runtime starts. Empty content DBs now seed a Kalaazu-derived
+  default snapshot for starter maps, portals, NPC density, item definitions,
+  ship definitions plus legacy ship compatibility ids, supported laser/shield
+  modules, projected starter laser/shield compatibility modules and item rows,
+  projected scanner/radar/cargo utility compatibility modules and item rows,
+  projected material item aliases, fully Kalaazu-derived buyable shop rows,
+  Kalaazu-resource loot tables, a Kalaazu-owned starter config, Kalaazu-owned
+  scanner config, Kalaazu-owned route policy, and Kalaazu/default-owned special
+  item contract rows plus craft recipes, production buildings, and production
+  rules plus combat rules, plus quest templates and reward tables projected
+  over Kalaazu/default NPC, item, recipe, and production rows, with
+  source/imported/unsupported counts recorded by the import report. Legacy
+  default snapshot bridge rows are now gone; the bridge report expects zero
+  rows and fails closed on new non-Kalaazu default rows. Kalaazu speed-generator,
+  rocket launcher, and repair bot items now map into typed module stats while
+  source equipment item rows use instance/bind-on-equip metadata. Next work:
+  expand draft / publish / rollback tooling, either model or keep explicitly
+  reporting unsupported trade-drone/special-CPU equipment rows, and build the
+  admin CMS UI for monsters, drop tables, item stats, recipes, map pools, and
+  planet/scanner tuning. Root browser demo runtime mode has been removed, so
+  CMS UI smoke must use real authenticated server/admin state.
   Source: `docs/plans/2026-06-24-content-foundation-design.md`.
 - [ ] Tune the first real world sprite set into the final 2D/3D art pass. The
   current renderer now loads concrete assets under `client/src/assets/world/`
@@ -1192,6 +1202,29 @@ Task 001 release proof must be rebuilt through
   and map every MVP pilot-skill effect into stat aggregation passive buckets,
   including combat, scanner/visibility, cargo, craft, construction, and route-capacity
   targets. Source: `docs/roadmap/03-progression-ships-modules-stats.md`.
+- [x] Close the remaining DarkOrbit-feel browser canary gap found on
+  2026-06-28: DB-seeded `1-3` live NPC density and NPC return fire are now
+  proven by `e2e:darkorbit-feel`; the same canary now kills a default-data
+  Origin NPC, receives server-created loot, picks it up into server cargo, and
+  uses `combat.state` keepalives so the authenticated WebSocket remains open
+  during the longer real-content kill. The canary now captures desktop and
+  mobile screenshots plus a run-notes JSON artifact; set
+  `DARKORBIT_FEEL_LONG_RUN_MS=600000` for the opt-in 10-minute observation
+  loop. Source:
+  `client/tests/e2e/phase11-darkorbit-feel-flow.mjs`.
+- [x] Replace remaining explicit Kalaazu default-seed legacy bridge rows.
+  `contentseed.DefaultSnapshotLegacyBridgeReport` now makes every non-Kalaazu
+  default snapshot row explicit and tested through a per-row allowlist. Quest
+  templates and reward tables are now emitted by the Kalaazu default row
+  builder as default projections over Kalaazu/default NPC, item, recipe, and
+  production rows, so the expected bridge report is empty.
+  Ship rows, shop products, loot tables, starter config, scanner config, route
+  policy, starter laser/shield/utility module rows, their item rows, and
+  material/special item aliases plus starter craft recipes and production
+  buildings/rules plus combat rules are produced by the Kalaazu default seed
+  builder.
+  Source:
+  `internal/game/contentseed/snapshot_bridge.go`.
 - [x] Wire realtime gateway request handling to authenticated session and
   server-side player resolution. `realtime.Gateway` now decodes request
   envelopes, resolves `CommandContext` through a server-side session resolver,

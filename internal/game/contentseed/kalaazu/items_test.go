@@ -1,0 +1,325 @@
+package kalaazu
+
+import (
+	"encoding/json"
+	"testing"
+
+	"gameproject/internal/game/catalog"
+	"gameproject/internal/game/content"
+	"gameproject/internal/game/economy"
+	"gameproject/internal/game/modules"
+)
+
+func TestBuildStarterItemRowsMapsKalaazuItems(t *testing.T) {
+	dumpRows, err := LoadDumpRows(DefaultSeedFS(), "testdata/items.sql")
+	if err != nil {
+		t.Fatalf("LoadDumpRows(items) error = %v, want nil", err)
+	}
+	rows, err := BuildStarterItemRows(DefaultSeedFS())
+	if err != nil {
+		t.Fatalf("BuildStarterItemRows() error = %v, want nil", err)
+	}
+	if got, want := len(rows), len(dumpRows)+23; got != want {
+		t.Fatalf("item rows = %d, want dump row count plus compatibility rows %d", got, want)
+	}
+
+	phoenix := requireItemDefinitionForTest(t, rows, "ship_phoenix")
+	if phoenix.Name != "Phoenix" || phoenix.Type != economy.ItemTypeInstance || phoenix.MaxStack.Int64() != 1 {
+		t.Fatalf("phoenix item = %+v, want instance ship item", phoenix)
+	}
+
+	ammo := requireItemDefinitionForTest(t, rows, "ammunition_laser_lcb_10")
+	if ammo.Name != "LCB-10" || ammo.Type != economy.ItemTypeStackable || ammo.MaxStack.Int64() != defaultStackMax {
+		t.Fatalf("lcb ammo item = %+v, want stackable ammo", ammo)
+	}
+	starterLaser := requireItemDefinitionForTest(t, rows, "laser_alpha_t1")
+	if starterLaser.Name != "LF-1" || starterLaser.Type != economy.ItemTypeInstance || starterLaser.MaxStack.Int64() != 1 {
+		t.Fatalf("starter laser item = %+v, want Kalaazu LF-1 instance item projected onto starter contract", starterLaser)
+	}
+	starterShield := requireItemDefinitionForTest(t, rows, "shield_generator_t1")
+	if starterShield.Name != "SG3N-A01" || starterShield.Type != economy.ItemTypeInstance || starterShield.MaxStack.Int64() != 1 {
+		t.Fatalf("starter shield item = %+v, want Kalaazu SG3N-A01 instance item projected onto starter contract", starterShield)
+	}
+	for _, want := range []content.ContentID{
+		"equipment_weapon_laser_lf_1",
+		"equipment_weapon_rocketlauncher_hst_1",
+		"equipment_extra_repbot_rep_4",
+	} {
+		definition := requireItemDefinitionForTest(t, rows, want)
+		if definition.Type != economy.ItemTypeInstance || definition.MaxStack.Int64() != 1 {
+			t.Fatalf("equipment item %s = %+v, want instance item for loadout equipment", want, definition)
+		}
+		if !itemTestHasBindRule(definition, economy.BindRuleOnEquip) {
+			t.Fatalf("equipment item %s bind rules = %+v, want bind-on-equip metadata", want, definition.BindRules)
+		}
+		if !itemTestHasTradeFlag(definition, economy.TradeFlagDestroyable) {
+			t.Fatalf("equipment item %s trade flags = %+v, want destroyable equipment metadata", want, definition.TradeFlags)
+		}
+	}
+	for _, want := range []struct {
+		contentID content.ContentID
+		name      string
+	}{
+		{contentID: "scanner_t1", name: "G-RL1"},
+		{contentID: "radar_t1", name: "AI-R1"},
+		{contentID: "cargo_expander_t1", name: "G3X-CRGO-X"},
+	} {
+		definition := requireItemDefinitionForTest(t, rows, want.contentID)
+		if definition.Name != want.name || definition.Type != economy.ItemTypeInstance || definition.MaxStack.Int64() != 1 {
+			t.Fatalf("compatibility utility item %s = %+v, want Kalaazu %s instance item projection", want.contentID, definition, want.name)
+		}
+	}
+	for _, want := range []struct {
+		contentID content.ContentID
+		name      string
+	}{
+		{contentID: "prometium", name: "Prometium"},
+		{contentID: "raw_ore", name: "Prometium"},
+		{contentID: "endurium", name: "Endurium"},
+		{contentID: "iron_ore", name: "Endurium"},
+		{contentID: "terbium", name: "Terbium"},
+		{contentID: "prometid", name: "Prometid"},
+		{contentID: "refined_alloy", name: "Prometid"},
+		{contentID: "duranium", name: "Duranium"},
+		{contentID: "xenomit", name: "Xenomit"},
+		{contentID: "carbon_shards", name: "Xenomit"},
+		{contentID: "promerium", name: "Promerium"},
+	} {
+		definition := requireItemDefinitionForTest(t, rows, want.contentID)
+		if definition.Name != want.name || definition.Type != economy.ItemTypeStackable {
+			t.Fatalf("compatibility item %s = %+v, want Kalaazu %s stackable projection", want.contentID, definition, want.name)
+		}
+		if err := economy.ValidateMarketListingTradeFlags(definition.TradeFlags); err != nil {
+			t.Fatalf("compatibility item %s market flags = %v, want routeable material", want.contentID, definition.TradeFlags)
+		}
+		if err := economy.ValidateDroppableTradeFlags(definition.TradeFlags); err != nil {
+			t.Fatalf("compatibility item %s drop flags = %v, want loot material", want.contentID, definition.TradeFlags)
+		}
+	}
+	for _, want := range []struct {
+		contentID content.ContentID
+		name      string
+		itemType  economy.ItemType
+		maxStack  int64
+	}{
+		{contentID: "laser_lens", name: "Laser Lens", itemType: economy.ItemTypeStackable, maxStack: 999},
+		{contentID: "energy_cell", name: "Energy Cell", itemType: economy.ItemTypeStackable, maxStack: 999},
+		{contentID: "scanner_circuit", name: "Scanner Circuit", itemType: economy.ItemTypeStackable, maxStack: 999},
+		{contentID: "warp_coil", name: "Warp Coil", itemType: economy.ItemTypeStackable, maxStack: 999},
+		{contentID: "helium_dust", name: "Helium Dust", itemType: economy.ItemTypeStackable, maxStack: 999},
+		{contentID: "planet_coordinate_scroll", name: "Planet Coordinate Scroll", itemType: economy.ItemTypeInstance, maxStack: 1},
+		{contentID: "x_core", name: "X Core", itemType: economy.ItemTypeStackable, maxStack: 99},
+	} {
+		definition := requireItemDefinitionForTest(t, rows, want.contentID)
+		if definition.Name != want.name || definition.Type != want.itemType || definition.MaxStack.Int64() != want.maxStack {
+			t.Fatalf("default projection item %s = %+v, want %s/%s/%d", want.contentID, definition, want.name, want.itemType, want.maxStack)
+		}
+	}
+}
+
+func TestBuildStarterModuleRowsMapsKalaazuLasersShieldsSpeedGeneratorsRocketLaunchersAndRepairBots(t *testing.T) {
+	rows, err := BuildStarterModuleRows(DefaultSeedFS())
+	if err != nil {
+		t.Fatalf("BuildStarterModuleRows() error = %v, want nil", err)
+	}
+	if got, want := len(rows), 27; got != want {
+		t.Fatalf("module rows = %d, want %d laser/shield/speed/rocket/repair rows plus compatibility rows", got, want)
+	}
+
+	for _, want := range []struct {
+		contentID content.ContentID
+		damage    int64
+	}{
+		{contentID: "equipment_weapon_laser_lf_1", damage: 40},
+		{contentID: "equipment_weapon_laser_lf_2", damage: 100},
+		{contentID: "equipment_weapon_laser_lf_3", damage: 150},
+		{contentID: "equipment_weapon_laser_lf_4", damage: 200},
+	} {
+		laser := requireModuleDefinitionForTest(t, rows, want.contentID)
+		if laser.SlotType != modules.ModuleSlotTypeOffensive ||
+			moduleTestStatValue(laser, modules.StatWeaponDamage) != want.damage {
+			t.Fatalf("laser module %s = %+v, want normalized damage %d", want.contentID, laser, want.damage)
+		}
+	}
+	sg3n := requireModuleDefinitionForTest(t, rows, "equipment_generator_shield_sg3n_a01")
+	if sg3n.SlotType != "defensive" || sg3n.StatModifiers[0].Stat != "shield_max" || sg3n.StatModifiers[0].Value != 1000 {
+		t.Fatalf("sg3n module = %+v, want Kalaazu shield module", sg3n)
+	}
+	g3n := requireModuleDefinitionForTest(t, rows, "equipment_generator_speed_g3n_7900")
+	if g3n.SlotType != "defensive" || g3n.StatModifiers[0].Stat != modules.StatSpeed || g3n.StatModifiers[0].Value != 10 {
+		t.Fatalf("g3n module = %+v, want Kalaazu speed module", g3n)
+	}
+	hst1 := requireModuleDefinitionForTest(t, rows, "equipment_weapon_rocketlauncher_hst_1")
+	hst2 := requireModuleDefinitionForTest(t, rows, "equipment_weapon_rocketlauncher_hst_2")
+	if hst1.SlotType != modules.ModuleSlotTypeOffensive ||
+		hst1.StatModifiers[0].Stat != modules.StatWeaponDamage ||
+		hst2.StatModifiers[0].Value <= hst1.StatModifiers[0].Value {
+		t.Fatalf("rocket launcher modules = %+v / %+v, want offensive scaling damage modules", hst1, hst2)
+	}
+	rep1 := requireModuleDefinitionForTest(t, rows, "equipment_extra_repbot_rep_1")
+	rep4 := requireModuleDefinitionForTest(t, rows, "equipment_extra_repbot_rep_4")
+	if rep1.SlotType != modules.ModuleSlotTypeUtility ||
+		rep1.StatModifiers[0].Stat != modules.StatShieldRegen ||
+		rep4.StatModifiers[0].Value <= rep1.StatModifiers[0].Value {
+		t.Fatalf("repair bot modules = %+v / %+v, want utility scaling regen modules", rep1, rep4)
+	}
+	starterLaser := requireModuleDefinitionForTest(t, rows, "laser_alpha_t1")
+	if starterLaser.Name != "LF-1" ||
+		moduleTestStatValue(starterLaser, modules.StatWeaponDamage) != 40 ||
+		moduleTestStatValue(starterLaser, modules.StatWeaponRange) != 650 ||
+		starterLaser.Energy.ActivationCost != 8 ||
+		len(starterLaser.Cooldowns) != 1 ||
+		starterLaser.Cooldowns[0].DurationMS != 1200 {
+		t.Fatalf("starter compatibility laser = %+v, want Kalaazu LF-1 projected onto starter contract", starterLaser)
+	}
+	starterShield := requireModuleDefinitionForTest(t, rows, "shield_generator_t1")
+	if starterShield.Name != "SG3N-A01" ||
+		moduleTestStatValue(starterShield, modules.StatShieldMax) != 1000 ||
+		moduleTestStatValue(starterShield, modules.StatShieldRegen) != 4 ||
+		starterShield.Energy.Upkeep != 2 {
+		t.Fatalf("starter compatibility shield = %+v, want Kalaazu SG3N-A01 projected onto starter contract", starterShield)
+	}
+	scanner := requireModuleDefinitionForTest(t, rows, "scanner_t1")
+	if scanner.Name != "G-RL1" ||
+		moduleTestStatValue(scanner, modules.StatScanPower) != 10 ||
+		moduleTestStatValue(scanner, modules.StatScanRadius) != 2_000 ||
+		scanner.Energy.ActivationCost != 6 ||
+		len(scanner.Cooldowns) != 1 ||
+		scanner.Cooldowns[0].Key != modules.CooldownScanPulse {
+		t.Fatalf("scanner compatibility module = %+v, want Kalaazu G-RL1 projected onto scanner contract", scanner)
+	}
+	radar := requireModuleDefinitionForTest(t, rows, "radar_t1")
+	if radar.Name != "AI-R1" ||
+		len(radar.StatModifiers) != 1 ||
+		radar.StatModifiers[0].Stat != modules.StatRadarRange ||
+		radar.StatModifiers[0].Kind != modules.StatModifierPercent ||
+		radar.StatModifiers[0].Value != 200 ||
+		radar.Energy.Upkeep != 1 {
+		t.Fatalf("radar compatibility module = %+v, want Kalaazu AI-R1 projected onto radar contract", radar)
+	}
+	cargo := requireModuleDefinitionForTest(t, rows, "cargo_expander_t1")
+	if cargo.Name != "G3X-CRGO-X" ||
+		len(cargo.StatModifiers) != 1 ||
+		cargo.StatModifiers[0].Stat != modules.StatCargoCapacity ||
+		cargo.StatModifiers[0].Kind != modules.StatModifierPercent ||
+		cargo.StatModifiers[0].Value != 10_000 {
+		t.Fatalf("cargo compatibility module = %+v, want Kalaazu G3X-CRGO-X projected onto cargo contract", cargo)
+	}
+}
+
+func TestBuildStarterShopRowsMapsBuyableRows(t *testing.T) {
+	rows, err := BuildStarterShopRows(DefaultSeedFS())
+	if err != nil {
+		t.Fatalf("BuildStarterShopRows() error = %v, want nil", err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("shop rows empty, want buyable Kalaazu products")
+	}
+
+	shipProduct := requireShopProductForTest(t, rows, "product_ship_goliath")
+	if shipProduct.ProductType != "ship" || shipProduct.GrantTarget.Kind != "ship" || shipProduct.GrantTarget.RefID != "ship_goliath" {
+		t.Fatalf("goliath product = %+v, want ship product", shipProduct)
+	}
+	moduleProduct := requireShopProductForTest(t, rows, "product_equipment_weapon_laser_lf_1")
+	if moduleProduct.ProductType != "module" || moduleProduct.GrantTarget.Kind != "module" || moduleProduct.GrantTarget.RefID != "equipment_weapon_laser_lf_1" {
+		t.Fatalf("lf1 product = %+v, want module product", moduleProduct)
+	}
+	lf3Product := requireShopProductForTest(t, rows, "product_equipment_weapon_laser_lf_3")
+	if lf3Product.Price.Amount != 10_000 || lf3Product.Price.Currency != catalog.PriceCurrencyCredits {
+		t.Fatalf("lf3 product price = %+v, want 10000 credit fallback for zero-price Kalaazu row", lf3Product.Price)
+	}
+	itemProduct := requireShopProductForTest(t, rows, "product_ammunition_laser_lcb_10")
+	if itemProduct.ProductType != "item" || itemProduct.GrantTarget.Kind != "item" || itemProduct.GrantTarget.RefID != "ammunition_laser_lcb_10" {
+		t.Fatalf("lcb product = %+v, want item product", itemProduct)
+	}
+	for _, row := range rows {
+		var product catalog.ShopProductDefinition
+		if err := json.Unmarshal(row.DataJSON, &product); err != nil {
+			t.Fatalf("shop row %q json error = %v", row.ContentID, err)
+		}
+		if product.Availability.Available && product.Price.Amount <= 0 {
+			t.Fatalf("shop row %q price = %+v, want available product with positive price", row.ContentID, product.Price)
+		}
+	}
+}
+
+func requireItemDefinitionForTest(t *testing.T, rows []content.SnapshotRow, contentID content.ContentID) economy.ItemDefinition {
+	t.Helper()
+	for _, row := range rows {
+		if row.ContentID != contentID {
+			continue
+		}
+		var definition economy.ItemDefinition
+		if err := json.Unmarshal(row.DataJSON, &definition); err != nil {
+			t.Fatalf("item row %q json error = %v", row.ContentID, err)
+		}
+		if err := definition.Validate(); err != nil {
+			t.Fatalf("item row %q Validate() error = %v", row.ContentID, err)
+		}
+		return definition
+	}
+	t.Fatalf("item row %q missing", contentID)
+	return economy.ItemDefinition{}
+}
+
+func itemTestHasBindRule(definition economy.ItemDefinition, rule economy.BindRule) bool {
+	for _, candidate := range definition.BindRules {
+		if candidate == rule {
+			return true
+		}
+	}
+	return false
+}
+
+func itemTestHasTradeFlag(definition economy.ItemDefinition, flag economy.TradeFlag) bool {
+	for _, candidate := range definition.TradeFlags {
+		if candidate == flag {
+			return true
+		}
+	}
+	return false
+}
+
+func requireModuleDefinitionForTest(t *testing.T, rows []content.SnapshotRow, contentID content.ContentID) modules.ModuleDefinition {
+	t.Helper()
+	for _, row := range rows {
+		if row.ContentID != contentID {
+			continue
+		}
+		var definition modules.ModuleDefinition
+		if err := json.Unmarshal(row.DataJSON, &definition); err != nil {
+			t.Fatalf("module row %q json error = %v", row.ContentID, err)
+		}
+		if err := definition.Validate(); err != nil {
+			t.Fatalf("module row %q Validate() error = %v", row.ContentID, err)
+		}
+		return definition
+	}
+	t.Fatalf("module row %q missing", contentID)
+	return modules.ModuleDefinition{}
+}
+
+func requireShopProductForTest(t *testing.T, rows []content.SnapshotRow, contentID content.ContentID) catalog.ShopProductDefinition {
+	t.Helper()
+	for _, row := range rows {
+		if row.ContentID != contentID {
+			continue
+		}
+		var product catalog.ShopProductDefinition
+		if err := json.Unmarshal(row.DataJSON, &product); err != nil {
+			t.Fatalf("shop row %q json error = %v", row.ContentID, err)
+		}
+		return product
+	}
+	t.Fatalf("shop row %q missing", contentID)
+	return catalog.ShopProductDefinition{}
+}
+
+func moduleTestStatValue(definition modules.ModuleDefinition, stat modules.StatKey) int64 {
+	for _, modifier := range definition.StatModifiers {
+		if modifier.Stat == stat && modifier.Kind == modules.StatModifierFlat {
+			return modifier.Value
+		}
+	}
+	return 0
+}

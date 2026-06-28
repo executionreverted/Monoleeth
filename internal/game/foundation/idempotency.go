@@ -66,6 +66,7 @@ const (
 	idempotencyPortalTransfer        = "portal_transfer"
 	idempotencyContentPublish        = "content_publish"
 	idempotencyContentRollback       = "content_rollback"
+	idempotencyCombatAmmoUse         = "combat_ammo_use"
 )
 
 // ParseIdempotencyKey validates value and returns an IdempotencyKey.
@@ -312,6 +313,11 @@ func ModuleUnequipIdempotencyKey(playerID PlayerID, shipID ShipID, itemInstanceI
 	return buildIdempotencyKey(idempotencyModuleUnequip, playerID.String(), shipID.String(), itemInstanceID.String(), requestID.String())
 }
 
+// CombatAmmoUseIdempotencyKey returns combat_ammo_use:<request_id>:<item_id>.
+func CombatAmmoUseIdempotencyKey(requestID RequestID, itemID ItemID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyCombatAmmoUse, requestID.String(), itemID.String())
+}
+
 // AdminCompensationIdempotencyKey returns admin_compensation:<subject_id>:<repair_reference>.
 func AdminCompensationIdempotencyKey(subjectID string, repairReference string) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyAdminCompensation, subjectID, repairReference)
@@ -475,7 +481,8 @@ func idempotencyPartCount(operation string) (int, bool) {
 	case idempotencyShipRepair,
 		idempotencyAdminCompensation,
 		idempotencyShopPurchase,
-		idempotencyContentRollback:
+		idempotencyContentRollback,
+		idempotencyCombatAmmoUse:
 		return 2, true
 	case idempotencyDeathCargoDrop:
 		return 2, true
