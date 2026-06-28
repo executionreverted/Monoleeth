@@ -67,6 +67,14 @@ func TestBuildMVPSnapshotUsesKalaazuStarterMapAndNPCRows(t *testing.T) {
 		starterConfig.WorldSeeds[0].EnemyPoolID != starterPool.EnemyPoolID {
 		t.Fatalf("starter world seeds = %+v, want Kalaazu starter pool %+v", starterConfig.WorldSeeds, starterPool)
 	}
+	scannerConfig := requireScannerConfigRow(t, snapshot.ScannerConfigs)
+	if string(scannerConfig.StaticSeed) != "kalaazu_scanner_seed_v1" ||
+		scannerConfig.CandidateOptions.ProfileVersion != "kalaazu_scanner_default_v1" ||
+		len(scannerConfig.MapProfiles) != 3 ||
+		scannerConfig.MapProfiles[0].MapID != "map_1_1" ||
+		scannerConfig.MapProfiles[0].SpawnBudget != 4 {
+		t.Fatalf("scanner config = %+v, want Kalaazu scanner seed over starter maps", scannerConfig)
+	}
 
 	goliath := requireSeedShipRow(t, snapshot.Ships, "ship_goliath")
 	if goliath.BaseStats.HP != 256000 || goliath.Slots.Offensive != 15 || goliath.Slots.Defensive != 15 {
@@ -92,6 +100,22 @@ func requireStarterConfigRow(t *testing.T, rows []content.SnapshotRow) content.S
 	}
 	t.Fatal("starter config row missing")
 	return content.StarterContent{}
+}
+
+func requireScannerConfigRow(t *testing.T, rows []content.SnapshotRow) content.ScannerContent {
+	t.Helper()
+	for _, row := range rows {
+		if row.ContentID != "scanner_config" {
+			continue
+		}
+		var scanner content.ScannerContent
+		if err := json.Unmarshal(row.DataJSON, &scanner); err != nil {
+			t.Fatalf("scanner config row %q json error = %v", row.ContentID, err)
+		}
+		return scanner
+	}
+	t.Fatal("scanner config row missing")
+	return content.ScannerContent{}
 }
 
 func requireSeedMapRow(t *testing.T, rows []content.SnapshotRow, contentID content.ContentID) seedMapRow {

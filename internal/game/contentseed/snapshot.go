@@ -77,6 +77,7 @@ func appendCoreRows(snapshot *content.Snapshot, bundle content.GameplayContent) 
 	if err := appendServerRuleRows(snapshot, bundle); err != nil {
 		return err
 	}
+	applyKalaazuScannerConfigRows(snapshot, kalaazuRows)
 	applyKalaazuStarterConfigRows(snapshot, kalaazuRows)
 	return nil
 }
@@ -139,6 +140,10 @@ func replaceSnapshotRows(existing []content.SnapshotRow, candidates []content.Sn
 
 func applyKalaazuStarterConfigRows(snapshot *content.Snapshot, rows kalaazu.DefaultRows) {
 	snapshot.StarterConfigs = rows.StarterConfigRows
+}
+
+func applyKalaazuScannerConfigRows(snapshot *content.Snapshot, rows kalaazu.DefaultRows) {
+	snapshot.ScannerConfigs = rows.ScannerConfigRows
 }
 
 func appendServerRuleRows(snapshot *content.Snapshot, bundle content.GameplayContent) error {

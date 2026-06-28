@@ -71,6 +71,9 @@ Completed and committed:
 - Task 8 bridge reduction slice: `starter_config` is now emitted by the
   Kalaazu default row builder, with the first Kalaazu starter enemy pool and
   Phoenix starter display projected into existing account/session contracts.
+- Task 8 bridge reduction slice: `scanner_config` is now emitted by the
+  Kalaazu default row builder, using a Kalaazu scanner seed and starter-map
+  profiles aligned to the seeded `1-1`, `1-2`, and `1-3` rows.
 
 Remaining before this plan is complete:
 

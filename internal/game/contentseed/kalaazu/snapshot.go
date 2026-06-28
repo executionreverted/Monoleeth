@@ -30,6 +30,7 @@ type DefaultRows struct {
 	NPCDropRows       []content.SnapshotRow
 	NPCAggroRows      []content.SnapshotRow
 	NPCLeashRows      []content.SnapshotRow
+	ScannerConfigRows []content.SnapshotRow
 	StarterConfigRows []content.SnapshotRow
 	Report            ImportReport
 }
@@ -67,6 +68,10 @@ func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
 	if err != nil {
 		return DefaultRows{}, err
 	}
+	scannerConfigRows, err := mapScannerConfigRows(mapRows.MapRows)
+	if err != nil {
+		return DefaultRows{}, err
+	}
 	starterConfigRows, err := mapStarterConfigRows(npcRows.EnemyPools)
 	if err != nil {
 		return DefaultRows{}, err
@@ -85,10 +90,51 @@ func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
 		NPCDropRows:       npcRows.NPCDropProfiles,
 		NPCAggroRows:      npcRows.NPCAggroProfiles,
 		NPCLeashRows:      npcRows.NPCLeashProfiles,
+		ScannerConfigRows: scannerConfigRows,
 		StarterConfigRows: starterConfigRows,
 	}
 	rows.Report = buildImportReport(source, rows)
 	return rows, nil
+}
+
+func mapScannerConfigRows(mapRows []content.SnapshotRow) ([]content.SnapshotRow, error) {
+	if len(mapRows) == 0 {
+		return nil, fmt.Errorf("scanner config map rows empty: %w", ErrMalformedDumpSQL)
+	}
+	maps := make([]mapDefinitionSnapshotData, 0, len(mapRows))
+	for _, row := range mapRows {
+		var mapped mapDefinitionSnapshotData
+		if err := json.Unmarshal(row.DataJSON, &mapped); err != nil {
+			return nil, fmt.Errorf("scanner config map row %q: %w", row.ContentID, err)
+		}
+		if mapped.MapID == "" {
+			return nil, fmt.Errorf("scanner config map row %q missing map id: %w", row.ContentID, ErrMalformedDumpSQL)
+		}
+		maps = append(maps, mapped)
+	}
+	scanner := content.DefaultScannerContent()
+	scanner.StaticSeed = []byte("kalaazu_scanner_seed_v1")
+	scanner.CandidateOptions.ProfileVersion = "kalaazu_scanner_default_v1"
+	scanner.MapProfiles = make([]content.ScannerMapProfile, 0, len(maps))
+	for index, mapped := range maps {
+		levelMax := 4
+		if index == 0 {
+			levelMax = 3
+		}
+		scanner.MapProfiles = append(scanner.MapProfiles, content.ScannerMapProfile{
+			MapID:          mapped.MapID,
+			ProfileVersion: fmt.Sprintf("kalaazu_scanner_%s_v1", normalizeIdentifier(mapped.PublicMapKey.String())),
+			LevelMin:       1,
+			LevelMax:       levelMax,
+			Density:        1,
+			SpawnBudget:    4 + index,
+		})
+	}
+	row, err := snapshotRow("scanner_config", scanner)
+	if err != nil {
+		return nil, err
+	}
+	return []content.SnapshotRow{row}, nil
 }
 
 func mapStarterConfigRows(enemyPoolRows []content.SnapshotRow) ([]content.SnapshotRow, error) {
@@ -187,6 +233,7 @@ func buildImportReport(source defaultSourceRows, rows DefaultRows) ImportReport 
 			content.ContentTypeNPCDropProfile:  len(rows.NPCDropRows),
 			content.ContentTypeNPCAggroProfile: len(rows.NPCAggroRows),
 			content.ContentTypeNPCLeashProfile: len(rows.NPCLeashRows),
+			content.ContentTypeScannerConfig:   len(rows.ScannerConfigRows),
 			content.ContentTypeStarterConfig:   len(rows.StarterConfigRows),
 		},
 		UnsupportedItems: unsupportedItemCounts(source.Items),

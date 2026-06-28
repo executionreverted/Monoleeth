@@ -79,6 +79,7 @@ func kalaazuDefaultRowIDs(rows kalaazu.DefaultRows) map[content.ContentType]map[
 	add(content.ContentTypeNPCDropProfile, rows.NPCDropRows)
 	add(content.ContentTypeNPCAggroProfile, rows.NPCAggroRows)
 	add(content.ContentTypeNPCLeashProfile, rows.NPCLeashRows)
+	add(content.ContentTypeScannerConfig, rows.ScannerConfigRows)
 	add(content.ContentTypeStarterConfig, rows.StarterConfigRows)
 	return out
 }
@@ -134,9 +135,6 @@ var explicitLegacyBridgeReasons = map[content.ContentType]map[content.ContentID]
 		"quest_rewards.quest_kill_void_raiders_r3":     "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
 		"quest_rewards.quest_scan_planets_r1":          "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
 		"quest_rewards.quest_scan_signals_r1":          "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.",
-	},
-	content.ContentTypeScannerConfig: {
-		"scanner_config": "Local scanner config bridge; selected Kalaazu dumps do not include scanner tuning rows.",
 	},
 	content.ContentTypeRoutePolicy: {
 		"route_policy": "Local route policy bridge; selected Kalaazu dumps do not include automation route rules.",

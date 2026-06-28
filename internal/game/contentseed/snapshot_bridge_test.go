@@ -53,6 +53,7 @@ func TestDefaultSnapshotLegacyBridgeReportCoversEveryNonKalaazuRow(t *testing.T)
 			content.ContentTypeModule,
 			content.ContentTypeShopProduct,
 			content.ContentTypeShip,
+			content.ContentTypeScannerConfig,
 			content.ContentTypeNPCTemplate,
 			content.ContentTypeSpawnArea,
 			content.ContentTypeEnemyPool,
@@ -74,7 +75,6 @@ func TestDefaultSnapshotLegacyBridgeReportNamesExpectedTemporaryRows(t *testing.
 		contentID   content.ContentID
 	}{
 		{content.ContentTypeCraftRecipe, "laser_alpha_t1"},
-		{content.ContentTypeScannerConfig, "scanner_config"},
 		{content.ContentTypeCombatRules, "combat_rules"},
 	} {
 		if !legacyBridgeReportHasRow(report, want.contentType, want.contentID) {
@@ -138,6 +138,16 @@ func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeStarterConfig(t *testing.
 	}
 	if legacyBridgeReportHasRow(report, content.ContentTypeStarterConfig, "starter_config") {
 		t.Fatalf("bridge report contains starter_config/starter_config, want Kalaazu starter config projection")
+	}
+}
+
+func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeScannerConfig(t *testing.T) {
+	report, err := DefaultSnapshotLegacyBridgeReport(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("DefaultSnapshotLegacyBridgeReport() error = %v, want nil", err)
+	}
+	if legacyBridgeReportHasRow(report, content.ContentTypeScannerConfig, "scanner_config") {
+		t.Fatalf("bridge report contains scanner_config/scanner_config, want Kalaazu scanner config projection")
 	}
 }
 
