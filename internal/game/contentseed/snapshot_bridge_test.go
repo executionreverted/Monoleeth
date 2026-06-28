@@ -58,6 +58,7 @@ func TestDefaultSnapshotLegacyBridgeReportCoversEveryNonKalaazuRow(t *testing.T)
 			content.ContentTypeShip,
 			content.ContentTypeScannerConfig,
 			content.ContentTypeRoutePolicy,
+			content.ContentTypeProductionRules,
 			content.ContentTypeNPCTemplate,
 			content.ContentTypeSpawnArea,
 			content.ContentTypeEnemyPool,
@@ -193,6 +194,16 @@ func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeRoutePolicy(t *testing.T)
 	}
 	if legacyBridgeReportHasRow(report, content.ContentTypeRoutePolicy, "route_policy") {
 		t.Fatalf("bridge report contains route_policy/route_policy, want Kalaazu route policy projection")
+	}
+}
+
+func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeProductionRules(t *testing.T) {
+	report, err := DefaultSnapshotLegacyBridgeReport(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("DefaultSnapshotLegacyBridgeReport() error = %v, want nil", err)
+	}
+	if legacyBridgeReportHasRow(report, content.ContentTypeProductionRules, "production_rules") {
+		t.Fatalf("bridge report contains production_rules/production_rules, want Kalaazu/default production rules projection")
 	}
 }
 

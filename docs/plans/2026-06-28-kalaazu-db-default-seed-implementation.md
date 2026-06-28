@@ -92,6 +92,10 @@ Completed and committed:
   emitted by the Kalaazu default row builder over Kalaazu-projected resource
   rows, so the bridge report fails if production buildings regress to
   local/static ownership.
+- Task 8 bridge reduction slice: `production_rules` is now emitted by the
+  Kalaazu default row builder over Kalaazu/default production building rows, so
+  the bridge report fails if production rules regress to local/static
+  ownership.
 
 Remaining before this plan is complete:
 

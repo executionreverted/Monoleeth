@@ -45,6 +45,29 @@ func TestBuildDefaultRowsMapsProductionBuildings(t *testing.T) {
 	}
 }
 
+func TestBuildDefaultRowsMapsProductionRules(t *testing.T) {
+	rows, err := BuildDefaultRows(DefaultSeedFS())
+	if err != nil {
+		t.Fatalf("BuildDefaultRows() error = %v, want nil", err)
+	}
+	if len(rows.ProductionRuleRows) != 1 {
+		t.Fatalf("production rule rows = %d, want 1", len(rows.ProductionRuleRows))
+	}
+	var rules content.ProductionRulesContent
+	if err := json.Unmarshal(rows.ProductionRuleRows[0].DataJSON, &rules); err != nil {
+		t.Fatalf("production rules json error = %v", err)
+	}
+	if rows.ProductionRuleRows[0].ContentID != "production_rules" ||
+		rules.ClaimRange <= 0 ||
+		rules.ClaimStorageCapacityUnits <= 0 ||
+		rules.ClaimEnergyCapacityPerHour <= 0 ||
+		!productionRulesHasCost(rules, production.BuildingMutationBuild, production.BuildingTypeIronExtractor, 1, 50) ||
+		!productionRulesHasCost(rules, production.BuildingMutationBuild, production.BuildingTypeAlloyFoundry, 1, 75) ||
+		!productionRulesHasCost(rules, production.BuildingMutationUpgrade, production.BuildingTypeIronExtractor, 2, 100) {
+		t.Fatalf("production rules = %+v, want default rules over Kalaazu/default production rows", rules)
+	}
+}
+
 func requireProductionBuildingForTest(t *testing.T, rows []content.SnapshotRow, definitionID catalog.DefinitionID) production.BuildingProductionDefinition {
 	t.Helper()
 	for _, row := range rows {
@@ -65,6 +88,15 @@ func requireProductionBuildingForTest(t *testing.T, rows []content.SnapshotRow, 
 	}
 	t.Fatalf("production row %q missing", definitionID)
 	return production.BuildingProductionDefinition{}
+}
+
+func productionRulesHasCost(rules content.ProductionRulesContent, operation production.BuildingMutationKind, buildingType production.BuildingType, level int, credits int64) bool {
+	for _, cost := range rules.BuildingCosts {
+		if cost.Operation == operation && cost.BuildingType == buildingType && cost.Level == level && cost.Credits == credits {
+			return true
+		}
+	}
+	return false
 }
 
 func productionDefinitionHasInput(definition production.BuildingProductionDefinition, itemID content.ContentID, amountPerHour int64) bool {

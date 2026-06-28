@@ -66,6 +66,27 @@ func mapProductionBuildingRows(itemRows []content.SnapshotRow) ([]content.Snapsh
 	return rows, nil
 }
 
+func mapProductionRuleRows(itemRows []content.SnapshotRow, productionBuildingRows []content.SnapshotRow) ([]content.SnapshotRow, error) {
+	if err := requireProductionBuildingSourceRows(itemRows); err != nil {
+		return nil, err
+	}
+	for _, contentID := range []content.ContentID{
+		"iron_extractor_l1",
+		"iron_extractor_l2",
+		"alloy_foundry_l1",
+	} {
+		if !snapshotRowsContain(productionBuildingRows, contentID) {
+			return nil, fmt.Errorf("production rule building source %q missing", contentID)
+		}
+	}
+	rules := content.DefaultProductionRulesContent()
+	row, err := snapshotRow("production_rules", rules)
+	if err != nil {
+		return nil, err
+	}
+	return []content.SnapshotRow{row}, nil
+}
+
 func mustDefaultProductionDefinition(
 	definitionID catalog.DefinitionID,
 	buildingType production.BuildingType,
