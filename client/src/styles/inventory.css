@@ -582,6 +582,51 @@
   place-items: center;
 }
 
+.crafting-locked-panel[data-crafting-state='ready'] {
+  place-items: stretch;
+  align-content: start;
+  gap: 0.75rem;
+  overflow: auto;
+}
+
+.crafting-recipe-grid {
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  overflow: visible;
+  padding: 0;
+}
+
+.crafting-recipe-grid .module-card {
+  aspect-ratio: auto;
+  min-height: 8.5rem;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  justify-items: start;
+  align-items: start;
+  gap: 0.35rem;
+  padding: 0.65rem;
+  text-align: left;
+  cursor: default;
+}
+
+.crafting-recipe-grid .module-card::before {
+  position: absolute;
+  right: 0.65rem;
+  top: 0.65rem;
+}
+
+.crafting-recipe-grid .module-card > span,
+.crafting-recipe-grid .module-card > small {
+  display: block;
+  max-width: calc(100% - 2rem);
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.crafting-recipe-grid .module-card button {
+  align-self: end;
+  justify-self: stretch;
+  min-height: 2.35rem;
+}
+
 .systems-subhead {
   margin-top: 0.625rem;
   padding-top: 0.5rem;

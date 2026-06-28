@@ -383,7 +383,7 @@
 
 .planet-section-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.45rem;
 }
 
@@ -396,11 +396,6 @@
   border: 1px solid rgba(215, 247, 255, 0.12);
   background: rgba(255, 255, 255, 0.025);
   padding: 0.5rem;
-}
-
-.planet-section-grid section:last-child {
-  grid-column: 1 / -1;
-  min-height: 0;
 }
 
 .route-controls {
@@ -480,6 +475,22 @@
   .route-row {
     grid-template-columns: minmax(5.5rem, 1fr) minmax(5.5rem, 1fr);
   }
+}
+
+.planet-detail .route-create,
+.planet-detail .route-row,
+.planet-catalog__detail .route-create,
+.planet-catalog__detail .route-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.building-controls .compact-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.building-controls .compact-list button {
+  min-width: 6.25rem;
 }
 
 .systems-block {

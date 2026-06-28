@@ -1322,14 +1322,14 @@ export class HUD {
     if (window.innerWidth < 768) {
       return null;
     }
-    const width = Math.min(544, Math.max(320, window.innerWidth - 16));
-    const height = Math.min(544, Math.max(320, window.innerHeight - 24));
+    const width = Math.min(768, Math.max(320, window.innerWidth - 16));
+    const height = Math.min(672, Math.max(320, window.innerHeight - 24));
     return this.clampModalPosition((window.innerWidth - width) / 2, (window.innerHeight - height) / 2);
   }
 
   private clampModalPosition(x: number, y: number): { x: number; y: number } {
-    const width = Math.min(544, Math.max(320, window.innerWidth - 16));
-    const height = Math.min(544, Math.max(320, window.innerHeight - 24));
+    const width = Math.min(768, Math.max(320, window.innerWidth - 16));
+    const height = Math.min(672, Math.max(320, window.innerHeight - 24));
     const margin = 8;
     return {
       x: clamp(x, margin, Math.max(margin, window.innerWidth - width - margin)),

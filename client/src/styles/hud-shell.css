@@ -591,8 +591,8 @@ button:disabled {
   position: absolute;
   top: var(--modal-y, 50%);
   left: var(--modal-x, 50%);
-  width: min(34rem, calc(100vw - 2rem));
-  max-height: min(34rem, calc(100vh - 3rem));
+  width: min(48rem, calc(100vw - 2rem));
+  max-height: min(42rem, calc(100vh - 3rem));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid rgba(244, 201, 93, 0.52);

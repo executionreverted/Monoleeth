@@ -25,22 +25,22 @@ export const baseWindowDefinitions: HUDPanelDefinition[] = [
 export function windowLayout(id: HUDWindowID): { width: number; preferredHeight: number; size: 'compact' | 'dual-pane' | 'triple-pane' | 'system' } {
   switch (id) {
     case 'economy':
-      return { width: 640, preferredHeight: 540, size: 'triple-pane' };
+      return { width: 760, preferredHeight: 600, size: 'triple-pane' };
     case 'quests':
-      return { width: 620, preferredHeight: 760, size: 'dual-pane' };
+      return { width: 700, preferredHeight: 760, size: 'dual-pane' };
     case 'intel':
-      return { width: 620, preferredHeight: 710, size: 'dual-pane' };
+      return { width: 780, preferredHeight: 740, size: 'dual-pane' };
     case 'systems':
-      return { width: 540, preferredHeight: 470, size: 'system' };
+      return { width: 620, preferredHeight: 520, size: 'system' };
     case 'chat':
-      return { width: 680, preferredHeight: 640, size: 'dual-pane' };
+      return { width: 720, preferredHeight: 640, size: 'dual-pane' };
     case 'social':
-      return { width: 560, preferredHeight: 620, size: 'dual-pane' };
+      return { width: 640, preferredHeight: 620, size: 'dual-pane' };
     case 'ops':
-      return { width: 640, preferredHeight: 700, size: 'dual-pane' };
+      return { width: 720, preferredHeight: 700, size: 'dual-pane' };
     case 'cargo':
     default:
-      return { width: 760, preferredHeight: 610, size: 'triple-pane' };
+      return { width: 880, preferredHeight: 660, size: 'triple-pane' };
   }
 }
 
