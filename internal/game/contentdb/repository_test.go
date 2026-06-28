@@ -128,11 +128,11 @@ func TestRepositoryAdminPublishItemShipShopDraftSurvivesRuntimeReload(t *testing
 		row.BaseStats.CargoCapacity = 88
 		row.Slots.Offensive = 2
 	})
-	updateDraftRowFromSeed(t, ctx, service, content.ContentTypeShopProduct, store.current.Snapshot.ShopProducts, "product_ferrite_ore", nil, func(row *catalog.ShopProductDefinition) {
-		row.Display.DisplayName = "Auric Ore Bundle"
-		row.Display.Description = "Published runtime proof ore pack."
+	updateDraftRowFromSeed(t, ctx, service, content.ContentTypeShopProduct, store.current.Snapshot.ShopProducts, "product_laser_lens", nil, func(row *catalog.ShopProductDefinition) {
+		row.Display.DisplayName = "Auric Lens Bundle"
+		row.Display.Description = "Published runtime proof lens pack."
 		row.Display.Rarity = "uncommon"
-		row.GrantTarget.RefID = "raw_ore"
+		row.GrantTarget.RefID = "laser_lens"
 		row.GrantTarget.Quantity = 7
 		row.Price.Amount = 123
 		row.Availability = catalog.AvailabilityRule{Available: true}
@@ -175,12 +175,12 @@ func TestRepositoryAdminPublishItemShipShopDraftSurvivesRuntimeReload(t *testing
 	if ship.Name != "Proof Skiff" || ship.BaseStats.HP != 321 || ship.BaseStats.CargoCapacity != 88 || ship.Slots.Offensive != 2 {
 		t.Fatalf("runtime ship = %+v, want published hull/cargo/slot values", ship)
 	}
-	product, ok := bundle.Shop.ShopProduct("product_ferrite_ore")
+	product, ok := bundle.Shop.ShopProduct("product_laser_lens")
 	if !ok {
-		t.Fatal("product_ferrite_ore missing after runtime reload")
+		t.Fatal("product_laser_lens missing after runtime reload")
 	}
 	if product.Price.Amount != 123 || product.Price.Amount == 40 ||
-		product.GrantTarget.RefID != "raw_ore" || product.GrantTarget.Quantity != 7 || product.GrantTarget.Quantity == 10 ||
+		product.GrantTarget.RefID != "laser_lens" || product.GrantTarget.Quantity != 7 || product.GrantTarget.Quantity == 2 ||
 		!product.Availability.Available {
 		t.Fatalf("runtime shop product = %+v, want published price/grant/enabled values", product)
 	}
@@ -193,7 +193,7 @@ func TestRepositoryAdminPublishItemShipShopDraftSurvivesRuntimeReload(t *testing
 	if projectedItem.Display.DisplayName != "Auric Ore" || projectedItem.WeightUnits != 6 || projectedItem.Display.Category != "resources" {
 		t.Fatalf("projected item = %+v, want client-safe published display/weight/category", projectedItem)
 	}
-	projectedProduct := requireProjectedShopProduct(t, projection, "product_ferrite_ore")
+	projectedProduct := requireProjectedShopProduct(t, projection, "product_laser_lens")
 	if projectedProduct.Price.Amount != 123 || projectedProduct.GrantTarget.Quantity != 7 || !projectedProduct.Availability.Available {
 		t.Fatalf("projected product = %+v, want client-safe published shop fields", projectedProduct)
 	}
@@ -362,7 +362,7 @@ func TestRepositoryMissingItemReferencesFail(t *testing.T) {
 		{
 			name: "shop",
 			mutate: func(snapshot *content.Snapshot) {
-				mutateSnapshotRow[catalog.ShopProductDefinition](t, snapshot.ShopProducts, "product_ferrite_ore", func(row *catalog.ShopProductDefinition) {
+				mutateSnapshotRow[catalog.ShopProductDefinition](t, snapshot.ShopProducts, "product_laser_lens", func(row *catalog.ShopProductDefinition) {
 					row.GrantTarget.RefID = "missing_item"
 				})
 			},
@@ -637,7 +637,17 @@ func appendSeedCoreRows(t *testing.T, snapshot *content.Snapshot, bundle content
 	for _, definition := range bundle.Maps.Definitions() {
 		appendSeedMapRows(t, snapshot, definition)
 	}
+	appendSeedServerRuleRows(t, snapshot, bundle)
 	appendSeedQuestRows(t, snapshot)
+}
+
+func appendSeedServerRuleRows(t *testing.T, snapshot *content.Snapshot, bundle content.GameplayContent) {
+	t.Helper()
+	snapshot.ScannerConfigs = append(snapshot.ScannerConfigs, testSnapshotRow(t, "scanner_config", bundle.Scanner))
+	snapshot.StarterConfigs = append(snapshot.StarterConfigs, testSnapshotRow(t, "starter_config", bundle.Starter))
+	snapshot.RoutePolicies = append(snapshot.RoutePolicies, testSnapshotRow(t, "route_policy", bundle.Route))
+	snapshot.ProductionRules = append(snapshot.ProductionRules, testSnapshotRow(t, "production_rules", bundle.Rules))
+	snapshot.CombatRules = append(snapshot.CombatRules, testSnapshotRow(t, "combat_rules", bundle.Combat))
 }
 
 func appendSeedQuestRows(t *testing.T, snapshot *content.Snapshot) {

@@ -118,8 +118,8 @@ func TestNewRuntimeUsesPublishedItemShipShopRuntimeContent(t *testing.T) {
 		t.Fatalf("decode content catalog: %v", err)
 	}
 	projectedItem := requireRuntimeProjectedItem(t, catalogPayload.ContentCatalog, "raw_ore")
-	if projectedItem.Display.DisplayName != "Auric Ore Bundle" || projectedItem.WeightUnits != 6 || projectedItem.Display.Category != gamecontent.ShopCategoryResources {
-		t.Fatalf("content.catalog item = %+v, want published item display/weight/category", projectedItem)
+	if projectedItem.Display.DisplayName != "Auric Ore" || projectedItem.WeightUnits != 6 {
+		t.Fatalf("content.catalog item = %+v, want published item display/weight", projectedItem)
 	}
 	if raw := string(catalogRaw); strings.Contains(raw, "metadata_schema") || strings.Contains(raw, "loot_table") || strings.Contains(raw, "spawn_area") {
 		t.Fatalf("content.catalog leaked hidden fields: %s", raw)
@@ -135,7 +135,7 @@ func TestNewRuntimeUsesPublishedItemShipShopRuntimeContent(t *testing.T) {
 	itemBuyRaw, err := runtime.handleShopBuyProduct(ctx, realtime.NewRequestEnvelope(
 		"request-cms-runtime-shop-buy",
 		realtime.OperationShopBuyProduct,
-		json.RawMessage(`{"product_id":"product_ferrite_ore","quantity":2}`),
+		json.RawMessage(`{"product_id":"product_laser_lens","quantity":2}`),
 		1,
 	))
 	if err != nil {
@@ -150,15 +150,25 @@ func TestNewRuntimeUsesPublishedItemShipShopRuntimeContent(t *testing.T) {
 		itemBuyPayload.Inventory == nil {
 		t.Fatalf("item shop buy = %+v, want published price/grant values and inventory", itemBuyPayload)
 	}
-	if got := inventoryStackQuantity(*itemBuyPayload.Inventory, "raw_ore", economy.LocationKindAccountInventory.String()); got != 14 {
-		t.Fatalf("raw_ore purchased quantity = %d, want CMS grant quantity 14", got)
+	if got := inventoryStackQuantity(*itemBuyPayload.Inventory, "laser_lens", economy.LocationKindAccountInventory.String()); got != 14 {
+		t.Fatalf("laser_lens purchased quantity = %d, want CMS grant quantity 14", got)
+	}
+	_, err = runtime.handleShopBuyProduct(ctx, realtime.NewRequestEnvelope(
+		"request-cms-runtime-shop-buy-ore",
+		realtime.OperationShopBuyProduct,
+		json.RawMessage(`{"product_id":"product_prometium_invalid","quantity":1}`),
+		2,
+	))
+	var domainErr *foundation.DomainError
+	if !errors.As(err, &domainErr) || domainErr.Code != foundation.CodeForbidden {
+		t.Fatalf("handleShopBuyProduct(prometium) error = %v, want forbidden cargo-resource shop guard", err)
 	}
 
 	shipBuyRaw, err := runtime.handleShopBuyProduct(ctx, realtime.NewRequestEnvelope(
 		"request-cms-runtime-shop-buy-fighter",
 		realtime.OperationShopBuyProduct,
 		json.RawMessage(`{"product_id":"product_ship_fighter_t1","quantity":1}`),
-		2,
+		3,
 	))
 	if err != nil {
 		t.Fatalf("handleShopBuyProduct(fighter) error = %v, want nil", err)
@@ -175,7 +185,7 @@ func TestNewRuntimeUsesPublishedItemShipShopRuntimeContent(t *testing.T) {
 		"request-cms-runtime-activate-fighter",
 		realtime.OperationHangarActivateShip,
 		json.RawMessage(`{"ship_id":"fighter_t1"}`),
-		3,
+		4,
 	))
 	if err != nil {
 		t.Fatalf("handleHangarActivateShip() error = %v, want nil", err)
@@ -529,17 +539,15 @@ func TestNewRuntimeContentDBOffRejectsRealMode(t *testing.T) {
 	}
 }
 
-func TestNewRuntimeContentDBOffUsesStaticRepositoryInDevMode(t *testing.T) {
-	runtime, err := NewRuntime(RuntimeConfig{
+func TestNewRuntimeContentDBOffRejectsDevModeWithoutRepository(t *testing.T) {
+	_, err := NewRuntime(RuntimeConfig{
 		WorldID:   foundation.WorldID("world-1"),
 		DevMode:   true,
 		ContentDB: contentdb.Config{Mode: contentdb.ContentModeOff},
 	})
-	if err != nil {
-		t.Fatalf("NewRuntime() error = %v, want nil", err)
+	if !errors.Is(err, contentdb.ErrContentDatabaseDisabled) {
+		t.Fatalf("NewRuntime() error = %v, want ErrContentDatabaseDisabled", err)
 	}
-
-	assertRuntimeLaserDamage(t, runtime, 12)
 }
 
 func TestNewRuntimeContentDBDevFallbackWithoutURLRejectsRealMode(t *testing.T) {
@@ -554,19 +562,17 @@ func TestNewRuntimeContentDBDevFallbackWithoutURLRejectsRealMode(t *testing.T) {
 	}
 }
 
-func TestNewRuntimeContentDBDevFallbackWithoutURLUsesStaticRepositoryInDevMode(t *testing.T) {
-	runtime, err := NewRuntime(RuntimeConfig{
+func TestNewRuntimeContentDBDevFallbackWithoutURLRejectsDevModeWithoutRepository(t *testing.T) {
+	_, err := NewRuntime(RuntimeConfig{
 		WorldID: foundation.WorldID("world-1"),
 		DevMode: true,
 		ContentDB: contentdb.Config{
 			Mode: contentdb.ContentModeDevFallback,
 		},
 	})
-	if err != nil {
-		t.Fatalf("NewRuntime() error = %v, want nil", err)
+	if !errors.Is(err, contentdb.ErrContentDatabaseDisabled) {
+		t.Fatalf("NewRuntime() error = %v, want ErrContentDatabaseDisabled", err)
 	}
-
-	assertRuntimeLaserDamage(t, runtime, 12)
 }
 
 func TestLoadRuntimeContentFromDBSeedsEmptyStoreThenLoadsRepository(t *testing.T) {
@@ -593,7 +599,7 @@ func TestLoadRuntimeContentFromDBSeedsEmptyStoreThenLoadsRepository(t *testing.T
 		t.Fatalf("loadRuntimeContent() error = %v, want nil", err)
 	}
 
-	assertBundleLaserDamage(t, bundle, 12)
+	assertBundleLaserDamage(t, bundle, 40)
 	if got, want := store.migrations, []contentdb.MigrationMode{contentdb.MigrationModeVerify}; !equalMigrationModes(got, want) {
 		t.Fatalf("migrations = %v, want %v", got, want)
 	}
@@ -947,22 +953,37 @@ func runtimeTestBundleWithItemShipShopProof(t *testing.T) gamecontent.GameplayCo
 	bundle.Ships = shipCatalog
 
 	products := bundle.Shop.SortedShopProducts()
+	products = append(products, catalog.ShopProductDefinition{
+		ProductID:   "product_prometium_invalid",
+		ProductType: catalog.ShopProductTypeItem,
+		Display: catalog.DisplayMetadata{
+			DisplayName: "Invalid Prometium Pack",
+			Description: "Regression row for cargo-resource shop guard.",
+			Category:    gamecontent.ShopCategoryResources,
+			ArtKey:      "item.prometium",
+			SortOrder:   999,
+		},
+		GrantTarget:  catalog.GrantTarget{Kind: catalog.GrantTargetKindItem, RefID: "prometium", Quantity: 1},
+		Price:        catalog.PricePolicy{Currency: catalog.PriceCurrency(economy.CurrencyBucketCredits.String()), Amount: 1, Fixed: true},
+		Stock:        catalog.StockPolicy{Kind: catalog.StockPolicyUnlimited},
+		Availability: catalog.AvailabilityRule{Available: true},
+	})
 	foundProduct := false
 	for index := range products {
-		if products[index].ProductID != "product_ferrite_ore" {
+		if products[index].ProductID != "product_laser_lens" {
 			continue
 		}
-		products[index].Display.DisplayName = "Auric Ore Bundle"
-		products[index].Display.Description = "Published runtime proof ore pack."
+		products[index].Display.DisplayName = "Auric Lens Bundle"
+		products[index].Display.Description = "Published runtime proof lens pack."
 		products[index].Display.Rarity = economy.ItemRarityUncommon.String()
-		products[index].GrantTarget.RefID = "raw_ore"
+		products[index].GrantTarget.RefID = "laser_lens"
 		products[index].GrantTarget.Quantity = 7
 		products[index].Price.Amount = 123
 		products[index].Availability = catalog.AvailabilityRule{Available: true}
 		foundProduct = true
 	}
 	if !foundProduct {
-		t.Fatal("product_ferrite_ore missing")
+		t.Fatal("product_laser_lens missing")
 	}
 	foundShipProduct := false
 	for index := range products {

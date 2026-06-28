@@ -41,33 +41,16 @@ import (
 )
 
 const (
-	starterShipID                      foundation.ShipID = gamecontent.DefaultStarterShipID
-	starterShipDisplayName                               = gamecontent.DefaultStarterShipDisplayName
-	defaultPlayerSpeed                                   = gamecontent.DefaultPlayerSpeed
-	defaultRadarRange                                    = gamecontent.DefaultRadarRange
-	defaultMaxMoveDistance                               = 1200
-	runtimeLootPickupRange                               = gamecontent.DefaultLootPickupRange
-	runtimeBasicLaserEnergyCost                          = gamecontent.DefaultBasicLaserEnergyCost
-	runtimeBasicLaserCooldownMS                          = gamecontent.DefaultBasicLaserCooldownMS
-	minMoveCommandInterval                               = 75 * time.Millisecond
-	runtimeStealthSpeedMultiplier                        = 0.70
-	starterScannerItemID                                 = gamecontent.DefaultStarterScannerItemID
-	starterScannerModuleID                               = gamecontent.DefaultStarterScannerModuleID
-	starterScannerScanPower                              = gamecontent.DefaultStarterScannerScanPower
-	starterScannerScanRadius                             = gamecontent.DefaultStarterScannerScanRadius
-	starterScannerScanInterval                           = gamecontent.DefaultStarterScannerScanInterval
-	starterScannerEnergyCost                             = gamecontent.DefaultStarterScannerEnergyCost
-	runtimeHiddenPlayerWitnessDuration                   = 15 * time.Minute
-	runtimePortalCooldown                                = 30 * time.Second
-	runtimePortalProtectionDuration                      = 10 * time.Second
-	starterWalletCredits                                 = gamecontent.DefaultStarterWalletCredits
-	starterWalletPremiumPaid                             = gamecontent.DefaultStarterWalletPremiumPaid
-	weeklyXCorePremiumPrice                              = gamecontent.DefaultWeeklyXCorePremiumPrice
-	weeklyXCoreStockTotal                                = gamecontent.DefaultWeeklyXCoreStockTotal
-	runtimeQuestRewardLedgerReason                       = economy.LedgerReason("quest_reward")
-	runtimeSectorKey                                     = "origin-fringe"
-	runtimeProjectionSourceWorker                        = "worker_projection"
-	runtimeProjectionSourceKnownIntel                    = "known_intel"
+	defaultMaxMoveDistance             = 1200
+	minMoveCommandInterval             = 75 * time.Millisecond
+	runtimeStealthSpeedMultiplier      = 0.70
+	runtimeHiddenPlayerWitnessDuration = 15 * time.Minute
+	runtimePortalCooldown              = 30 * time.Second
+	runtimePortalProtectionDuration    = 10 * time.Second
+	runtimeQuestRewardLedgerReason     = economy.LedgerReason("quest_reward")
+	runtimeSectorKey                   = "origin-fringe"
+	runtimeProjectionSourceWorker      = "worker_projection"
+	runtimeProjectionSourceKnownIntel  = "known_intel"
 )
 
 // RuntimeConfig wires the single-process game runtime.
@@ -328,10 +311,7 @@ func loadRuntimeContent(ctx context.Context, config RuntimeConfig) (gamecontent.
 	if contentConfig.Enabled() {
 		return loadRuntimeContentFromDB(ctx, contentConfig, config)
 	}
-	if !config.DevMode {
-		return gamecontent.GameplayContent{}, fmt.Errorf("content db: %w", contentdb.ErrContentDatabaseDisabled)
-	}
-	return gamecontent.LoadPublishedContent(ctx, gamecontent.NewStaticRepository(), config.WorldID)
+	return gamecontent.GameplayContent{}, fmt.Errorf("content db: %w", contentdb.ErrContentDatabaseDisabled)
 }
 
 func loadRuntimeContentFromDB(ctx context.Context, contentConfig contentdb.Config, config RuntimeConfig) (gamecontent.GameplayContent, error) {

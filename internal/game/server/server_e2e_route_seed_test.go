@@ -21,9 +21,10 @@ func TestE2ERouteSeedAbsentByDefault(t *testing.T) {
 
 func TestE2ERouteSeedCreatesOwnedPlanetsAndStorageIdempotently(t *testing.T) {
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		DevMode:        true,
-		E2ERouteSeed:   true,
+		AllowedOrigins:    []string{testOrigin},
+		DevMode:           true,
+		E2ERouteSeed:      true,
+		ContentRepository: staticContentRepositoryForTest(),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)

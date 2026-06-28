@@ -88,7 +88,9 @@ for phase status; this file is a compact pending-work index.
   first-NPC entity overrides, playtest claim core quantity, and E2E route seed
   storage while runtime keeps all server-authoritative mutations. Manual
   playtest seed no longer grants owned route-test planets. Runtime now loads
-  through a `content.Repository` boundary backed by `StaticRepository`.
+  through a `content.Repository` boundary; test code may inject
+  `StaticRepository`, but normal runtime startup requires published content DB
+  rows and no longer silently falls back to static catalogs in dev mode.
   Shop/category/product registry content now lives in the content bundle and is
   reference-validated before runtime serves shop payloads. Route policy content
   now owns routeable resources, caps, energy formula values, loss band, and
@@ -101,12 +103,17 @@ for phase status; this file is a compact pending-work index.
   keeps visibility, cooldown, damage, death, repair, and snapshot truth. Map
   enemy content now rejects incomplete per-map pools/profiles, unreferenced
   NPC stat/drop/aggro/leash rows, missing pool refs, and invalid monster stat
-  values before runtime starts. Next work: add DB-backed empty-DB seeding from
-  `GameplayContent`, implement a Postgres-backed `content.Repository` for
-  published revision loading, add draft / publish / rollback validation, then
-  build the admin CMS UI for monsters, drop tables, item stats, recipes, map
-  pools, and planet/scanner tuning. Root browser demo runtime mode has been
-  removed, so CMS UI smoke must use real authenticated server/admin state.
+  values before runtime starts. Empty content DBs now seed the Old DarkOrbit
+  2009 balance slice for XP, ships, modules, NPC stats, item/shop rows, loot
+  tables, cargo-only ore resources, maps, recipes, production buildings, and
+  quests; NPC ore drops go to ship cargo and ore resources are not shop
+  products. Scanner config, starter config, route policy, production rules, and
+  combat rules now have first-class snapshot rows as well; typed defaults remain
+  only as first-run seed builders and explicit test helpers. Next work: expand
+  draft / publish / rollback tooling and build the admin CMS UI for monsters,
+  drop tables, item stats, recipes, map pools, and planet/scanner tuning. Root
+  browser demo runtime mode has been removed, so CMS UI smoke must use real
+  authenticated server/admin state.
   Source: `docs/plans/2026-06-24-content-foundation-design.md`.
 - [ ] Tune the first real world sprite set into the final 2D/3D art pass. The
   current renderer now loads concrete assets under `client/src/assets/world/`

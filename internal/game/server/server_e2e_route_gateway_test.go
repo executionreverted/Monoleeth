@@ -14,10 +14,11 @@ import (
 func TestE2ERouteSeedSupportsGatewayCreateAndSettleLoop(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		DevMode:        true,
-		E2ERouteSeed:   true,
-		Clock:          clock,
+		AllowedOrigins:    []string{testOrigin},
+		DevMode:           true,
+		E2ERouteSeed:      true,
+		Clock:             clock,
+		ContentRepository: staticContentRepositoryForTest(),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)

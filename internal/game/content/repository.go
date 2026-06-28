@@ -16,6 +16,9 @@ type Repository interface {
 	LoadPublishedContent(ctx context.Context, worldID world.WorldID) (GameplayContent, error)
 }
 
+// StaticRepository is a seed/test adapter for typed default content. Runtime
+// boot should use it only when tests inject it explicitly; live server startup
+// loads published rows from contentdb.
 type StaticRepository struct{}
 
 func NewStaticRepository() StaticRepository {

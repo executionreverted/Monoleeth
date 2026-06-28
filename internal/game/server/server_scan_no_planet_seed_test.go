@@ -13,6 +13,7 @@ func TestE2EScanNoPlanetSeedReturnsNoSignalWithoutPlanetMutation(t *testing.T) {
 		AllowedOrigins:      []string{testOrigin},
 		DevMode:             true,
 		E2EScanNoPlanetSeed: true,
+		ContentRepository:   staticContentRepositoryForTest(),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)

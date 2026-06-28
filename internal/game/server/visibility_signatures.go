@@ -14,18 +14,18 @@ const runtimeHiddenPlayerStealthScore = 125
 
 func (runtime *Runtime) visibilityStatSnapshotLocked(playerID foundation.PlayerID, now time.Time) stats.StatSnapshot {
 	state, ok := runtime.players[playerID]
-	exploration := stats.ExplorationStats{RadarRange: defaultRadarRange}
+	exploration := stats.ExplorationStats{RadarRange: runtime.combatRules.RadarRange}
 	if ok {
 		exploration = runtime.explorationStatsForPlayerStateLocked(state)
 	}
-	return stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
+	return stats.NewStatSnapshot(playerID, runtime.starterContent.ShipID, 1, stats.EffectiveStats{
 		Exploration: exploration,
 	}, now)
 }
 
 func (runtime *Runtime) explorationStatsForPlayerStateLocked(state playerRuntimeState) stats.ExplorationStats {
 	return stats.ExplorationStats{
-		RadarRange:            positiveOrDefault(state.Stats.RadarRange, defaultRadarRange),
+		RadarRange:            positiveOrDefault(state.Stats.RadarRange, runtime.combatRules.RadarRange),
 		DetectionPower:        nonNegativeFinite(state.Stats.DetectionPower),
 		JammerResistance:      nonNegativeFinite(state.Stats.JammerResistance),
 		StealthDetectionBonus: nonNegativeFinite(state.Stats.StealthDetectionBonus),

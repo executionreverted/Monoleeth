@@ -3,7 +3,6 @@ package server
 import (
 	"errors"
 
-	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
@@ -11,12 +10,6 @@ import (
 	"gameproject/internal/game/market"
 	"gameproject/internal/game/progression"
 	"gameproject/internal/game/world/worker"
-)
-
-const (
-	runtimePlanetClaimRange               = gamecontent.DefaultPlanetClaimRange
-	runtimeClaimProductionStorageCapacity = gamecontent.DefaultClaimProductionStorageCapacity
-	runtimeClaimProductionEnergyCapacity  = gamecontent.DefaultClaimProductionEnergyCapacity
 )
 
 type runtimeClaimRankProvider struct {

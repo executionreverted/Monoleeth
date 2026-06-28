@@ -665,6 +665,11 @@ var contentTableNames = map[content.ContentType]string{
 	content.ContentTypeProductionBuilding: "content_production_buildings",
 	content.ContentTypeQuestTemplate:      "content_quest_templates",
 	content.ContentTypeQuestRewardTable:   "content_quest_reward_tables",
+	content.ContentTypeScannerConfig:      "content_scanner_configs",
+	content.ContentTypeStarterConfig:      "content_starter_configs",
+	content.ContentTypeRoutePolicy:        "content_route_policies",
+	content.ContentTypeProductionRules:    "content_production_rules",
+	content.ContentTypeCombatRules:        "content_combat_rules",
 }
 
 func nullableAuditJSON(path string, raw json.RawMessage) (any, error) {

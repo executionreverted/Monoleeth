@@ -5,12 +5,9 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/production"
 )
-
-const runtimeRouteEndpointStorageCapacityUnits int64 = gamecontent.DefaultRouteEndpointStorageUnits
 
 type routeEndpointPayload struct {
 	Type  string `json:"type"`

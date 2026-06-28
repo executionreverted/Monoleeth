@@ -14,14 +14,6 @@ import (
 	"gameproject/internal/game/realtime"
 )
 
-const (
-	buildingBuildIronExtractorCredits   int64 = gamecontent.DefaultBuildingBuildIronExtractorCredits
-	buildingBuildAlloyFoundryIronOre    int64 = gamecontent.DefaultBuildingBuildAlloyFoundryIronOre
-	buildingBuildAlloyFoundryCredits    int64 = gamecontent.DefaultBuildingBuildAlloyFoundryCredits
-	buildingUpgradeIronExtractorIronOre int64 = gamecontent.DefaultBuildingUpgradeIronExtractorIronOre
-	buildingUpgradeIronExtractorCredits int64 = gamecontent.DefaultBuildingUpgradeIronExtractorCredits
-)
-
 type planetBuildingBuildIntent struct {
 	PlanetID     string `json:"planet_id"`
 	BuildingType string `json:"building_type"`

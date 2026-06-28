@@ -5,15 +5,12 @@ import (
 	"errors"
 	"fmt"
 
-	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/production"
 	"gameproject/internal/game/realtime"
 	worldmaps "gameproject/internal/game/world/maps"
 )
-
-const runtimeRouteCreateMaxRoutesPerPlayer = gamecontent.DefaultRouteCreateMaxRoutesPerPlayer
 
 type routeCreateIntent struct {
 	SourcePlanetID string `json:"source_planet_id"`

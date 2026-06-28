@@ -292,7 +292,7 @@ func (runtime *Runtime) attachPlayerToDestinationLocked(instance *mapInstance, p
 		PlayerID: playerID,
 		EntityID: entityID,
 		Position: position,
-		Speed:    defaultPlayerSpeed,
+		Speed:    runtime.combatRules.PlayerSpeed,
 	})
 }
 

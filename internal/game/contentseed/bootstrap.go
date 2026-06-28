@@ -68,11 +68,21 @@ func EnsurePublishedSeed(ctx context.Context, store SeedStore, snapshot content.
 	if hasContent {
 		return SeedResult{}, nil
 	}
+	return PublishSeedSnapshot(ctx, store, snapshot, options)
+}
+
+func PublishSeedSnapshot(ctx context.Context, store SeedStore, snapshot content.Snapshot, options SeedOptions) (SeedResult, error) {
+	if ctx == nil {
+		return SeedResult{}, ErrNilSeedContext
+	}
+	if isNilSeedStore(store) {
+		return SeedResult{}, ErrNilSeedStore
+	}
 	if err := snapshot.Validate(); err != nil {
 		return SeedResult{}, fmt.Errorf("validate content seed snapshot: %w", err)
 	}
 
-	options, err = normalizeSeedOptions(snapshot, options)
+	options, err := normalizeSeedOptions(snapshot, options)
 	if err != nil {
 		return SeedResult{}, err
 	}

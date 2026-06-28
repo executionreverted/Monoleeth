@@ -163,7 +163,7 @@ func (runtime *Runtime) effectiveRadarRangeUnitsLocked(playerID foundation.Playe
 	if !ok {
 		// Conservative server fallback for bootstrap/test harnesses before a
 		// stat provider has materialized an effective radar snapshot.
-		return defaultRadarRange
+		return runtime.combatRules.RadarRange
 	}
 	return runtime.explorationStatsForPlayerStateLocked(state).RadarRange
 }

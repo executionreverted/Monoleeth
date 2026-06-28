@@ -51,7 +51,7 @@ func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error
 			PlayerID: resolved.PlayerID,
 			EntityID: state.EntityID,
 			Position: location.Position,
-			Speed:    defaultPlayerSpeed,
+			Speed:    runtime.combatRules.PlayerSpeed,
 		}); err != nil {
 			return err
 		}

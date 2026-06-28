@@ -30,6 +30,7 @@ func TestE2EPlanetClaimSeedGrantsClaimProofStateIdempotently(t *testing.T) {
 		AllowedOrigins:     []string{testOrigin},
 		DevMode:            true,
 		E2EPlanetClaimSeed: true,
+		ContentRepository:  staticContentRepositoryForTest(),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)
@@ -56,6 +57,7 @@ func TestE2EPlanetClaimSeedCanGrantMultipleXCoreForMatrixProof(t *testing.T) {
 		DevMode:             true,
 		E2EPlanetClaimSeed:  true,
 		E2EPlanetClaimCores: 2,
+		ContentRepository:   staticContentRepositoryForTest(),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)

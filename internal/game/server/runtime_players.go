@@ -55,7 +55,7 @@ func (runtime *Runtime) applyActiveShipLocked(playerID foundation.PlayerID, ship
 		baseSpeed := float64(definition.BaseStats.Speed)
 		if instance, _, err := runtime.activeMapInstanceLocked(playerID); err == nil && instance.HiddenPlayers[playerID] {
 			runtime.stealthBaseSpeeds[playerID] = baseSpeed
-			state.Stats.Speed = runtimePlayerSpeedForStealth(baseSpeed, true)
+			state.Stats.Speed = runtime.playerSpeedForStealth(baseSpeed, true)
 		} else {
 			state.Stats.Speed = baseSpeed
 		}
@@ -99,7 +99,7 @@ func (runtime *Runtime) setPlayerStealthLocked(playerID foundation.PlayerID, ena
 		return worker.ErrUnknownPlayer
 	}
 	baseSpeed := runtime.stealthBaseSpeedLocked(playerID, state)
-	speed := runtimePlayerSpeedForStealth(baseSpeed, enabled)
+	speed := runtime.playerSpeedForStealth(baseSpeed, enabled)
 	instance, _, err := runtime.activeMapInstanceLocked(playerID)
 	if err != nil {
 		return err
@@ -138,12 +138,12 @@ func (runtime *Runtime) stealthBaseSpeedLocked(playerID foundation.PlayerID, sta
 		}
 		return state.Stats.Speed
 	}
-	return defaultPlayerSpeed
+	return runtime.combatRules.PlayerSpeed
 }
 
-func runtimePlayerSpeedForStealth(baseSpeed float64, enabled bool) float64 {
+func (runtime *Runtime) playerSpeedForStealth(baseSpeed float64, enabled bool) float64 {
 	if baseSpeed <= 0 {
-		baseSpeed = defaultPlayerSpeed
+		baseSpeed = runtime.combatRules.PlayerSpeed
 	}
 	if enabled {
 		return baseSpeed * runtimeStealthSpeedMultiplier

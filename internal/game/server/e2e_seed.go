@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
@@ -20,8 +19,6 @@ const (
 	runtimePlaytestSeedLedgerReason       economy.LedgerReason = "playtest_seed"
 	e2ePlanetClaimSeedReason                                   = "e2e_planet_claim_seed"
 	playtestSeedReason                                         = "playtest_seed"
-	e2eRouteSeedSourceStorageUnits                             = gamecontent.DefaultRouteSeedStorageUnits
-	e2eRouteSeedEnergyPerHour                                  = gamecontent.DefaultRouteSeedEnergyPerHour
 )
 
 func (runtime *Runtime) seedE2EPlanetClaimProof(playerID foundation.PlayerID) error {

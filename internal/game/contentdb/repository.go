@@ -117,7 +117,7 @@ func mapPublishedSnapshot(snapshot content.Snapshot, worldID world.WorldID) (con
 		return content.GameplayContent{}, err
 	}
 
-	return content.GameplayContent{
+	bundle := content.GameplayContent{
 		Items:      items,
 		LootTables: lootTables,
 		Modules:    moduleCatalog,
@@ -126,13 +126,24 @@ func mapPublishedSnapshot(snapshot content.Snapshot, worldID world.WorldID) (con
 		Production: productionCatalog,
 		Quests:     questCatalog,
 		Maps:       mapCatalog,
-		Scanner:    content.DefaultScannerContent(),
-		Starter:    content.DefaultStarterContent(),
 		Shop:       shopContent,
-		Route:      content.DefaultRouteContent(),
-		Rules:      content.DefaultProductionRulesContent(),
-		Combat:     content.DefaultCombatRulesContent(),
-	}, nil
+	}
+	if bundle.Scanner, err = mapScannerConfigRows(snapshot, mapCatalog); err != nil {
+		return content.GameplayContent{}, err
+	}
+	if bundle.Starter, err = mapStarterConfigRows(snapshot, bundle); err != nil {
+		return content.GameplayContent{}, err
+	}
+	if bundle.Route, err = mapRoutePolicyRows(snapshot, bundle); err != nil {
+		return content.GameplayContent{}, err
+	}
+	if bundle.Rules, err = mapProductionRuleRows(snapshot, bundle); err != nil {
+		return content.GameplayContent{}, err
+	}
+	if bundle.Combat, err = mapCombatRuleRows(snapshot); err != nil {
+		return content.GameplayContent{}, err
+	}
+	return bundle, nil
 }
 
 func isNilSnapshotLoader(loader publishedSnapshotLoader) bool {

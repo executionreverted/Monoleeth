@@ -353,9 +353,10 @@ func TestNewRejectsE2EScanNoPlanetSeedOutsideDevMode(t *testing.T) {
 
 func TestNewAllowsE2ERouteSeedInDevMode(t *testing.T) {
 	if _, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		DevMode:        true,
-		E2ERouteSeed:   true,
+		AllowedOrigins:    []string{testOrigin},
+		DevMode:           true,
+		E2ERouteSeed:      true,
+		ContentRepository: staticContentRepositoryForTest(),
 	}); err != nil {
 		t.Fatalf("New() error = %v, want nil in dev mode", err)
 	}
@@ -366,6 +367,7 @@ func TestNewAllowsE2EPlanetClaimSeedInDevMode(t *testing.T) {
 		AllowedOrigins:     []string{testOrigin},
 		DevMode:            true,
 		E2EPlanetClaimSeed: true,
+		ContentRepository:  staticContentRepositoryForTest(),
 	}); err != nil {
 		t.Fatalf("New() error = %v, want nil in dev mode", err)
 	}
@@ -376,6 +378,7 @@ func TestNewAllowsE2EScanNoPlanetSeedInDevMode(t *testing.T) {
 		AllowedOrigins:      []string{testOrigin},
 		DevMode:             true,
 		E2EScanNoPlanetSeed: true,
+		ContentRepository:   staticContentRepositoryForTest(),
 	}); err != nil {
 		t.Fatalf("New() error = %v, want nil in dev mode", err)
 	}

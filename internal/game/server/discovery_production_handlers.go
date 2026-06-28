@@ -184,7 +184,7 @@ func (runtime *Runtime) handleScanPulse(ctx realtime.CommandContext, request rea
 		PlayerID:       ctx.PlayerID,
 		WorldID:        guard.WorldID,
 		ZoneID:         guard.ZoneID,
-		ShipID:         starterShipID,
+		ShipID:         runtime.starterContent.ShipID,
 		PulseReference: ref,
 	})
 	if err != nil {
