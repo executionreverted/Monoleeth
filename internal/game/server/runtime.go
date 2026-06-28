@@ -340,7 +340,7 @@ func loadRuntimeContentFromDB(ctx context.Context, contentConfig contentdb.Confi
 	if !hasContent {
 		buildSnapshot := config.contentSeedSnapshot
 		if buildSnapshot == nil {
-			buildSnapshot = contentseed.BuildMVPSnapshot
+			buildSnapshot = contentseed.BuildDefaultSnapshot
 		}
 		snapshot, err := buildSnapshot(config.WorldID)
 		if err != nil {

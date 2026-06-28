@@ -16,9 +16,9 @@ import (
 
 const MVPSnapshotVersion = "content_kalaazu_starter_seed_v1"
 
-// BuildMVPSnapshot compiles the current validated seed bundle into deterministic
-// CMS snapshot rows for first-run contentdb publishing.
-func BuildMVPSnapshot(worldID world.WorldID) (content.Snapshot, error) {
+// BuildDefaultSnapshot compiles the current Kalaazu-derived default seed into
+// deterministic CMS snapshot rows for first-run contentdb publishing.
+func BuildDefaultSnapshot(worldID world.WorldID) (content.Snapshot, error) {
 	bundle, err := content.DefaultGameplayContent(worldID)
 	if err != nil {
 		return content.Snapshot{}, err
@@ -35,6 +35,12 @@ func BuildMVPSnapshot(worldID world.WorldID) (content.Snapshot, error) {
 		return content.Snapshot{}, err
 	}
 	return snapshot, nil
+}
+
+// BuildMVPSnapshot is a legacy compatibility wrapper for older tests and seed
+// callers. New runtime code should call BuildDefaultSnapshot.
+func BuildMVPSnapshot(worldID world.WorldID) (content.Snapshot, error) {
+	return BuildDefaultSnapshot(worldID)
 }
 
 func appendCoreRows(snapshot *content.Snapshot, bundle content.GameplayContent) error {
