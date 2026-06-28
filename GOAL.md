@@ -15,6 +15,9 @@ Bu işler önceki commitlerde tamamlandı:
 - `ab54b03` client: wire combat stance feedback
 - `ff6f984` content: add kalaazu seed input dumps
 - `534c7b93` content: derive darkorbit ammo combat rules
+- `74a3a404` game: add server combat ammo selection
+- `608b6730` game: consume laser ammo during combat
+- `03fb2a65` client: wire combat ammo selection
 
 Bunların kapsadığı aktif-goal dışı işler:
 
@@ -30,45 +33,32 @@ Bunların kapsadığı aktif-goal dışı işler:
 - Runtime empty content DB first boot seed path.
 - Static fallback/legacy bridge hardening.
 - Ammo content catalog and LF laser damage normalization.
+- Server-owned `combat.select_ammo` intent.
+- Runtime-owned active ammo selection per authenticated player.
+- Ammo selection validation for family, item id, selectable ammo definition,
+  account inventory quantity, and item catalog match.
+- Safe combat state snapshots/events for selected ammo and remaining quantity.
+- Server-side laser ammo resolution, selected-ammo fallback to owned `LCB-10`,
+  no-ammo stop with `not_enough_ammo`, inventory/economy consumption ledger,
+  and ammo multiplier damage application.
+- Client inventory ammo selection intent and HUD display of server-selected ammo
+  state.
 
 ## Remaining Work
 
-### 1. Server-Owned Ammo Settings
+### 1. Client Quickbar Assignment Polish
 
-- Add `combat.select_ammo`.
-- Runtime owns active ammo selection per player.
-- Validate authenticated session, family, item id, selectable ammo definition,
-  owned inventory quantity, and item catalog match.
-- Client must never send damage, multiplier, cooldown, hit result, quantity, or
-  fallback decision.
-- Expose selected ammo and remaining quantity through safe combat state
-  snapshot/event payloads.
-
-### 2. Laser Ammo Consumption And Damage
-
-- On each server laser tick, resolve selected laser ammo.
-- If selected ammo is empty, fallback to `LCB-10` only when player owns it.
-- If selected ammo and fallback are both unavailable, reject shot or stop active
-  engagement with `not_enough_ammo`.
-- Consume one laser ammo unit server-side through inventory/economy service and
-  ledger.
-- Apply server-side ammo multiplier to laser damage.
-- Emit client-safe combat feedback with selected/fallback ammo and remaining
-  quantity.
-- Keep SAB/CBO/RSB special behavior conservative unless implemented with tests;
-  cataloged/selectable is okay, fake effects are not.
-
-### 3. Client Quickbar Ammo Slice
-
-- Let inventory ammo be assignable to quick action bar slots.
-- Selecting an ammo quickbar slot sends only `combat.select_ammo` intent.
+- Let inventory ammo be assignable to quick action bar slots, beyond the current
+  inventory-row select button.
+- Selecting an assigned ammo quickbar slot sends only `combat.select_ammo`
+  intent.
 - Laser attacks use server-selected ammo state from snapshots/events.
 - If server says ammo unavailable, UI shows locked/empty/disabled state from
   real server response.
 - No fake inventory, ammo, damage, target, cargo, wallet, NPC, map, or quest
   values.
 
-### 4. DB-Backed Dense Early Sector Verification
+### 2. DB-Backed Dense Early Sector Verification
 
 - Keep early route `1-1 -> 1-2 -> 1-3` dense, risky, and rewarding through
   DB-published Kalaazu/default seed data, not static Go catalog edits.
@@ -76,7 +66,7 @@ Bunların kapsadığı aktif-goal dışı işler:
 - Invalid/missing published DB content must fail closed.
 - Prove DB-published edits affect runtime and static fallback is not used.
 
-### 5. Optional Browser Feel Gate
+### 3. Optional Browser Feel Gate
 
 - If UI/browser behavior changes, run browser smoke/screenshot verification.
 - Run or schedule the opt-in 10-minute observation loop:
