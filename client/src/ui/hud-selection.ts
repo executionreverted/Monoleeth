@@ -1,4 +1,4 @@
-import type { InventoryTabID, ModuleFilterID, ShopCategoryID, SocialTabID } from './hud-types';
+import type { InventoryTabID, ModuleFilterID, ShopCategoryID, QuickbarAmmoAssignment, SocialTabID } from './hud-types';
 
 export const hudSelection = {
   selectedQuestKey: null as string | null,
@@ -13,6 +13,7 @@ export const hudSelection = {
   selectedPortalID: null as string | null,
   selectedPortalScope: null as string | null,
   selectedRouteID: null as string | null,
+  quickbarAmmoAssignments: {} as Record<string, QuickbarAmmoAssignment>,
   selectedAdminContentType: 'module' as string,
   selectedAdminContentID: null as string | null,
 };

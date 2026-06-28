@@ -122,7 +122,7 @@ export function inventoryStoredPanel(context: InventoryTabContext): string {
   const stackRows = inventory.stackable
     .map(
       (item) => `
-        <li data-item-id="${escapeHTML(item.item_id)}">
+        <li ${stackRowAttributes(item)}>
           <span title="${escapeHTML(publicInventoryStateLabel(item.location))}">${escapeHTML(item.display_name || item.item_id)}</span>
           <strong>${item.quantity}</strong>
           ${combatAmmoAction(item, state)}
@@ -156,6 +156,7 @@ function combatAmmoAction(item: NonNullable<ClientState['inventory']>['stackable
   const pending = hasPendingOpPayloadField(state, OPERATIONS.combatSelectAmmo, 'item_id', item.item_id);
   const selected = state.combatEngagement.activeAmmo.laser?.itemID === item.item_id;
   const enabled = realtimeReady(state) && !pending && item.location === 'account_inventory' && item.quantity > 0;
+  const label = ammoQuickbarLabel(item);
   const title = item.location !== 'account_inventory'
     ? 'Ammo must be in account inventory'
     : pending
@@ -163,11 +164,27 @@ function combatAmmoAction(item: NonNullable<ClientState['inventory']>['stackable
       : selected
         ? 'Laser ammo selected server-side'
         : 'Select laser ammo server-side';
-  return `<button type="button" data-action="combat-ammo-select" data-ammo-family="laser" data-item-id="${escapeHTML(item.item_id)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${pending ? 'Selecting' : selected ? 'Selected' : 'Ammo'}</button>`;
+  return `<button type="button" data-action="combat-ammo-select" data-ammo-family="laser" data-item-id="${escapeHTML(item.item_id)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${pending ? 'Selecting' : selected ? 'Selected' : 'Ammo'}</button><button type="button" data-action="quickbar-ammo-assign" data-quickbar-slot="2" data-ammo-family="laser" data-item-id="${escapeHTML(item.item_id)}" data-ammo-label="${escapeHTML(label)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(enabled ? 'Assign this ammo to quick action slot 2' : title)}">Slot 2</button>`;
 }
 
 function isLaserAmmoItem(itemID: string): boolean {
   return itemID.startsWith('ammunition_laser_');
+}
+
+function stackRowAttributes(item: NonNullable<ClientState['inventory']>['stackable'][number]): string {
+  const base = `data-item-id="${escapeHTML(item.item_id)}"`;
+  if (!isLaserAmmoItem(item.item_id) || item.location !== 'account_inventory' || item.quantity <= 0) {
+    return base;
+  }
+  return `${base} draggable="true" data-quickbar-ammo-family="laser" data-quickbar-ammo-item-id="${escapeHTML(item.item_id)}" data-quickbar-ammo-label="${escapeHTML(ammoQuickbarLabel(item))}"`;
+}
+
+function ammoQuickbarLabel(item: NonNullable<ClientState['inventory']>['stackable'][number]): string {
+  const display = (item.display_name || item.item_id).trim();
+  if (display) {
+    return display.replace(/^ammunition_laser_/i, '').replace(/_/g, '-').toUpperCase();
+  }
+  return item.item_id.replace(/^ammunition_laser_/, '').replace(/_/g, '-').toUpperCase();
 }
 
 function coordinateScrollPanel(items: NonNullable<ClientState['inventory']>['instances'], state: ClientState): string {

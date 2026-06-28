@@ -9,8 +9,8 @@ import { cargoPanel } from './hud-render-inventory';
 import { planetCatalogPanel, planetDetailModal, planetModalTitle, planetsPanel, minimapPanel } from './hud-render-planets';
 import { questsPanel } from './hud-render-quests';
 import { adminContentBlock, adminContentEditModal } from './hud-render-admin-content';
-import type { ActionState, EntityCombatStatus, HUDHelpTopicID, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, KnownLootDropStatus, QuickActionCommand, QuickActionID, QuickActionState, SocialTabID, VisibleEntity } from './hud-types';
-import { actionScanLabel, clamp, escapeHTML, formatCooldown, formatDuration, formatPair, formatVec, hasPendingOp, isHelpTopicID, lockedValue, publicEntityType, publicPlanetName, realtimeReady, scanModeTimeDetail, scanStatusLabel } from './hud-formatters';
+import type { ActionState, CombatAmmoFamily, EntityCombatStatus, HUDHelpTopicID, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, KnownLootDropStatus, QuickActionCommand, QuickActionID, QuickActionState, SocialTabID, VisibleEntity } from './hud-types';
+import { actionScanLabel, clamp, escapeHTML, formatCooldown, formatDuration, formatPair, formatVec, hasPendingOp, hasPendingOpPayloadField, isHelpTopicID, lockedValue, publicEntityType, publicPlanetName, realtimeReady, scanModeTimeDetail, scanStatusLabel } from './hud-formatters';
 
 export const baseWindowDefinitions: HUDPanelDefinition[] = [
   { id: 'cargo', label: 'Inv', title: 'Inventory', iconURL: inventoryIconURL, helpTopic: 'inventory', render: cargoPanel },
@@ -916,7 +916,7 @@ export function quickActionMap(state: ClientState, serverNow: number | null): Re
 export function quickActionStates(state: ClientState, serverNow: number | null): QuickActionState[] {
   const target = primaryTarget(state);
   const loot = lootActionState(state, target, serverNow);
-  return [
+  const baseActions = [
     liveQuickAction('laser', 'fire', 1, '1', laserIconURL, laserCommandOp(state, target), laserActionState(state, target, serverNow)),
     lockedQuickAction('rocket', 'rocket', 2, '2', rocketIconURL, 'Rocket', 'Missile systems are not installed yet.'),
     liveQuickAction('scan', 'scan', 3, '3', scanIconURL, 'scan.pulse', scanActionState(state)),
@@ -924,6 +924,7 @@ export function quickActionStates(state: ClientState, serverNow: number | null):
     lockedQuickAction('warp', 'warp', 5, '5', warpIconURL, 'Warp', 'Warp drive is not installed yet.'),
     liveQuickAction('gather', 'loot', 6, '6', gatherIconURL, lootCommandOp(loot), loot),
   ];
+  return baseActions.map((action) => quickbarAssignedAmmoAction(action, state) ?? action);
 }
 
 function primaryTarget(state: ClientState): VisibleEntity | null {
@@ -992,15 +993,66 @@ export function lockedQuickAction(
 
 export function actionSlotHTML(action: QuickActionState): string {
   const commandAttr = action.commandOp ? ` data-command-op="${escapeHTML(action.commandOp)}"` : '';
+  const ammoAttrs = action.action === 'ammo' && action.ammoFamily && action.itemID
+    ? ` data-ammo-family="${escapeHTML(action.ammoFamily)}" data-item-id="${escapeHTML(action.itemID)}"`
+    : '';
   return `
-    <div class="action-slot" data-slot="${action.slot}" data-quick-action-slot="${action.id}" data-state="${action.state}"${commandAttr}>
-      <button class="action-button" type="button" data-action="${action.action}" data-quick-action="${action.id}" data-state="${action.state}" aria-label="${escapeHTML(action.label)} action" aria-keyshortcuts="${action.key}" ${action.enabled ? '' : 'disabled'} title="${escapeHTML(action.title)}">
+    <div class="action-slot" data-slot="${action.slot}" data-quick-action-slot="${action.id}" data-quickbar-ammo-slot="${action.slot}" data-state="${action.state}"${commandAttr}>
+      <button class="action-button" type="button" data-action="${action.action}" data-quick-action="${action.id}" data-state="${action.state}"${ammoAttrs} aria-label="${escapeHTML(action.label)} action" aria-keyshortcuts="${action.key}" ${action.enabled ? '' : 'disabled'} title="${escapeHTML(action.title)}">
         <img class="action-button__icon" src="${escapeHTML(action.iconURL)}" alt="" aria-hidden="true" draggable="false" />
         <span class="action-button__label">${escapeHTML(action.label)}</span>
         <small>${escapeHTML(action.detail)}</small>
       </button>
     </div>
   `;
+}
+
+function quickbarAssignedAmmoAction(action: QuickActionState, state: ClientState): QuickActionState | null {
+  const assignment = hudSelection.quickbarAmmoAssignments[String(action.slot)];
+  if (!assignment) {
+    return null;
+  }
+  const stack = state.inventory?.stackable.find(
+    (item) => item.item_id === assignment.itemID && item.location === 'account_inventory',
+  ) ?? null;
+  const selected = activeAmmoForFamily(state, assignment.family)?.itemID === assignment.itemID;
+  const pending = hasPendingOpPayloadField(state, OPERATIONS.combatSelectAmmo, 'item_id', assignment.itemID);
+  const enabled = realtimeReady(state) && !pending && Boolean(stack && stack.quantity > 0);
+  const detail = pending
+    ? 'Pending'
+    : selected
+      ? 'Selected'
+      : stack
+        ? `x${stack.quantity}`
+        : 'Empty';
+  const title = !realtimeReady(state)
+    ? 'Realtime connection required.'
+    : !stack || stack.quantity <= 0
+      ? `${assignment.label} is not available in account inventory.`
+      : selected
+        ? `${assignment.label} selected server-side.`
+        : `Select ${assignment.label} server-side.`;
+  return {
+    ...action,
+    action: 'ammo',
+    iconURL: laserIconURL,
+    commandOp: OPERATIONS.combatSelectAmmo,
+    enabled,
+    locked: false,
+    label: assignment.label,
+    detail,
+    title,
+    state: actionStateKind({ enabled, label: assignment.label, detail, title }),
+    ammoFamily: assignment.family,
+    itemID: assignment.itemID,
+  };
+}
+
+function activeAmmoForFamily(state: ClientState, family: CombatAmmoFamily): { itemID: string } | undefined {
+  if (family === 'laser') {
+    return state.combatEngagement.activeAmmo.laser;
+  }
+  return undefined;
 }
 
 export function actionStateKind(action: ActionState): QuickActionState['state'] {

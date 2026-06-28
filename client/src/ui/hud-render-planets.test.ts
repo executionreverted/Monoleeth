@@ -8,6 +8,10 @@ import { minimapPanel, planetCatalogPanel, planetDetailModal } from './hud-rende
 import { actionBar, shipPanel, targetPanel } from './hud-render-panels';
 import { topbarDangerText, topbarLocationText } from './hud-topbar';
 
+beforeEach(() => {
+  hudSelection.quickbarAmmoAssignments = {};
+});
+
 describe('minimapPanel', () => {
   beforeEach(() => {
     hudSelection.selectedPortalID = null;
@@ -745,6 +749,66 @@ describe('actionBar', () => {
     expect(laserSlot).toContain('&lt;1s');
     expect(laserSlot).not.toContain('disabled');
     expect(targetHTML).toMatch(/data-action="fire"[^>]*>Stop/);
+  });
+
+  test('assigned laser ammo quickbar slot sends only server select intent', () => {
+    const state = combatReadyState();
+    state.inventory = {
+      stackable: [
+        {
+          item_id: 'ammunition_laser_mcb_50',
+          display_name: 'MCB-50',
+          quantity: 25,
+          location: 'account_inventory',
+        },
+      ],
+      instances: [],
+      counts: { cargo_stacks: 0, storage_stacks: 1, equipped_instances: 0 },
+    };
+    hudSelection.quickbarAmmoAssignments['2'] = {
+      family: 'laser',
+      itemID: 'ammunition_laser_mcb_50',
+      label: 'MCB-50',
+    };
+
+    const barHTML = actionBar(state, 20_000);
+    const ammoSlot = actionSlot(barHTML, 'rocket');
+
+    expect(ammoSlot).toContain('data-action="ammo"');
+    expect(ammoSlot).toContain('data-command-op="combat.select_ammo"');
+    expect(ammoSlot).toContain('data-ammo-family="laser"');
+    expect(ammoSlot).toContain('data-item-id="ammunition_laser_mcb_50"');
+    expect(ammoSlot).toContain('MCB-50');
+    expect(ammoSlot).toContain('x25');
+    expect(ammoSlot).not.toContain('data-quantity');
+    expect(ammoSlot).not.toContain('data-damage');
+    expect(ammoSlot).not.toContain('data-multiplier');
+
+    state.combatEngagement.activeAmmo = {
+      laser: { itemID: 'ammunition_laser_mcb_50', ammoKey: 'mcb_50', quantity: 25, powerMultiplier: 3 },
+    };
+    const selectedSlot = actionSlot(actionBar(state, 20_000), 'rocket');
+    expect(selectedSlot).toContain('Selected');
+  });
+
+  test('assigned ammo quickbar slot locks when server inventory no longer has ammo', () => {
+    const state = combatReadyState();
+    state.inventory = {
+      stackable: [],
+      instances: [],
+      counts: { cargo_stacks: 0, storage_stacks: 0, equipped_instances: 0 },
+    };
+    hudSelection.quickbarAmmoAssignments['2'] = {
+      family: 'laser',
+      itemID: 'ammunition_laser_mcb_50',
+      label: 'MCB-50',
+    };
+
+    const ammoSlot = actionSlot(actionBar(state, 20_000), 'rocket');
+
+    expect(ammoSlot).toContain('data-action="ammo"');
+    expect(ammoSlot).toContain('Empty');
+    expect(ammoSlot).toMatch(/data-action="ammo"[^>]*disabled/);
   });
 
   test('target panel and laser slot fall back to the active combat target when manual selection is empty', () => {
