@@ -499,11 +499,29 @@
 }
 
 .social-tabs button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
+  align-items: center;
   min-height: 2rem;
   border: 1px solid rgba(138, 245, 255, 0.22);
   color: rgba(215, 247, 255, 0.72);
   background: rgba(138, 245, 255, 0.06);
   text-transform: uppercase;
+  text-align: left;
+}
+
+.social-tabs button strong {
+  min-width: 1.35rem;
+  font-size: 0.74rem;
+  text-align: center;
+  color: inherit;
+  border: 1px solid rgba(215, 247, 255, 0.18);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.social-tab-panel {
+  min-height: 11rem;
 }
 
 .social-tabs button[data-active="true"] {

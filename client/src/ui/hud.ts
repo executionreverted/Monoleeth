@@ -11,7 +11,7 @@ import { topbarDangerText, topbarLocationText } from './hud-topbar';
 import { actionBar, baseWindowDefinitions, intelPanel, logPanel, modalDefinition, movementEtaPanel, opsPanel, quickActionStates, shipPanel, statusPanel, systemsPanel, targetPanel, windowDefinitions, windowLayout } from './hud-render-panels';
 import { adminContentEditPatchFromForm, buildAdminContentDraftUpdate, findAdminContentDraftRow } from './hud-render-admin-content';
 import type { HUDDragState, HUDHandlers, HUDModalDragState, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, HUDWindowState } from './hud-types';
-import { clamp, escapeHTML, formatCompactNumber, formatPair, formatPercent, isControlElement, isInventoryTabID, isModuleFilterID, isQuickActionKey, isShopCategoryID, normalizeModalID, normalizePanelID, parseLoadoutDragPayload } from './hud-formatters';
+import { clamp, escapeHTML, formatCompactNumber, formatPair, formatPercent, isControlElement, isInventoryTabID, isModuleFilterID, isQuickActionKey, isShopCategoryID, isSocialTabID, normalizeModalID, normalizePanelID, parseLoadoutDragPayload } from './hud-formatters';
 import { dispatchPlanetRouteButtonAction } from './hud-planet-route-actions';
 
 export type { HUDHandlers } from './hud-types';
@@ -610,6 +610,12 @@ export class HUD {
           if (isModuleFilterID(button.dataset.moduleFilter)) {
             hudSelection.selectedModuleFilter = button.dataset.moduleFilter;
             hudSelection.selectedModuleInstanceID = null;
+            this.rerenderCurrent();
+          }
+          break;
+        case 'social-tab':
+          if (isSocialTabID(button.dataset.socialTab)) {
+            hudSelection.selectedSocialTab = button.dataset.socialTab;
             this.rerenderCurrent();
           }
           break;

@@ -1,4 +1,4 @@
-import type { InventoryTabID, ModuleFilterID, ShopCategoryID } from './hud-types';
+import type { InventoryTabID, ModuleFilterID, ShopCategoryID, SocialTabID } from './hud-types';
 
 export const hudSelection = {
   selectedQuestKey: null as string | null,
@@ -8,6 +8,7 @@ export const hudSelection = {
   selectedInventoryTab: 'equipment' as InventoryTabID,
   selectedModuleFilter: 'all' as ModuleFilterID,
   selectedModuleInstanceID: null as string | null,
+  selectedSocialTab: 'friends' as SocialTabID,
   selectedHangarShipID: null as string | null,
   selectedPortalID: null as string | null,
   selectedPortalScope: null as string | null,

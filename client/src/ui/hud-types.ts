@@ -98,6 +98,7 @@ export type QuestEntry =
 export type ShopCategoryID = string;
 export type InventoryTabID = 'equipment' | 'inventory' | 'cargo' | 'crafting';
 export type ModuleFilterID = 'all' | 'offensive' | 'defensive' | 'utility';
+export type SocialTabID = 'friends' | 'party' | 'clan';
 export type InventoryStackItem = NonNullable<ClientState['inventory']>['stackable'][number];
 export type ModuleInventoryItem = NonNullable<ClientState['inventory']>['instances'][number];
 export type MarketListingItem = NonNullable<ClientState['market']>['listings'][number];

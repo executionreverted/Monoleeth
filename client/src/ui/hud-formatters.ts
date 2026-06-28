@@ -1,5 +1,5 @@
 import type { ClientState } from '../state/types';
-import type { HUDHelpTopicID, HUDModalID, HUDWindowID, InventoryStackItem, InventoryTabID, ModuleFilterID, ShopCategoryID } from './hud-types';
+import type { HUDHelpTopicID, HUDModalID, HUDWindowID, InventoryStackItem, InventoryTabID, ModuleFilterID, ShopCategoryID, SocialTabID } from './hud-types';
 
 export function isControlElement(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(target.closest('button, input, select, textarea, a[href], [data-action]'));
@@ -127,6 +127,10 @@ export function isInventoryTabID(value: string | undefined): value is InventoryT
 
 export function isModuleFilterID(value: string | undefined): value is ModuleFilterID {
   return value === 'all' || value === 'offensive' || value === 'defensive' || value === 'utility';
+}
+
+export function isSocialTabID(value: string | undefined): value is SocialTabID {
+  return value === 'friends' || value === 'party' || value === 'clan';
 }
 
 export function normalizeModalID(value: string | undefined): HUDModalID | null {

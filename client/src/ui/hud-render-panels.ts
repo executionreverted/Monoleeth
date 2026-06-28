@@ -8,7 +8,7 @@ import { cargoPanel } from './hud-render-inventory';
 import { planetCatalogPanel, planetDetailModal, planetModalTitle, planetsPanel, minimapPanel } from './hud-render-planets';
 import { questsPanel } from './hud-render-quests';
 import { adminContentBlock, adminContentEditModal } from './hud-render-admin-content';
-import type { ActionState, EntityCombatStatus, HUDHelpTopicID, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, KnownLootDropStatus, QuickActionCommand, QuickActionID, QuickActionState, VisibleEntity } from './hud-types';
+import type { ActionState, EntityCombatStatus, HUDHelpTopicID, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, KnownLootDropStatus, QuickActionCommand, QuickActionID, QuickActionState, SocialTabID, VisibleEntity } from './hud-types';
 import { actionScanLabel, clamp, escapeHTML, formatCooldown, formatDuration, formatPair, formatVec, hasPendingOp, isHelpTopicID, lockedValue, publicEntityType, publicPlanetName, realtimeReady, scanModeTimeDetail, scanStatusLabel } from './hud-formatters';
 
 export const baseWindowDefinitions: HUDPanelDefinition[] = [
@@ -379,30 +379,72 @@ export function hangarScalar(label: string, value: number | undefined): string {
 export function socialPanel(state: ClientState): string {
   const social = state.social;
   const connected = realtimeReady(state);
+  const activeTab = hudSelection.selectedSocialTab;
   const party = social.party;
   const clan = social.clan;
+  return `
+    <h2>Social</h2>
+    <div class="social-tabs" role="tablist" aria-label="Social sections">
+      ${socialTabButton('friends', 'Friends', '0', activeTab)}
+      ${socialTabButton('party', 'Party', party ? String(party.members.length) : '0', activeTab)}
+      ${socialTabButton('clan', 'Clan', clan ? social.clanMembers.length.toString() : '0', activeTab)}
+    </div>
+    ${socialTabPanel(activeTab, state, connected)}
+  `;
+}
+
+function socialTabButton(tab: SocialTabID, label: string, count: string, activeTab: SocialTabID): string {
+  const active = tab === activeTab;
+  return `
+    <button
+      type="button"
+      role="tab"
+      data-action="social-tab"
+      data-social-tab="${tab}"
+      data-active="${active ? 'true' : 'false'}"
+      aria-selected="${active ? 'true' : 'false'}">
+      <span>${label}</span>
+      <strong>${count}</strong>
+    </button>
+  `;
+}
+
+function socialTabPanel(tab: SocialTabID, state: ClientState, connected: boolean): string {
+  switch (tab) {
+    case 'party':
+      return partySocialTab(state, connected);
+    case 'clan':
+      return clanSocialTab(state, connected);
+    case 'friends':
+    default:
+      return friendsSocialTab(connected);
+  }
+}
+
+function friendsSocialTab(connected: boolean): string {
+  return `
+    <section class="systems-block social-tab-panel" role="tabpanel" data-social-panel="friends">
+      <div class="meta-row"><span>Friend List</span><strong>Unavailable</strong></div>
+      <div class="empty-line">No server-owned friends yet.</div>
+      <div class="social-form-row">
+        <input data-social-field="friend-search" type="text" placeholder="Callsign" disabled />
+        <button class="ghost-action" type="button" disabled>${connected ? 'Add Friend' : 'Offline'}</button>
+        <button class="ghost-action" type="button" disabled>Block</button>
+      </div>
+    </section>
+  `;
+}
+
+function partySocialTab(state: ClientState, connected: boolean): string {
+  const social = state.social;
+  const party = social.party;
   const invite = social.pendingPartyInvite;
   const selectedTargetID = state.selectedTargetID;
   const canShareTarget = connected && Boolean(party && selectedTargetID);
   return `
-    <h2>Social</h2>
-    <div class="social-tabs" role="tablist" aria-label="Social sections">
-      <button type="button" data-social-tab="friends" data-active="true">Friends</button>
-      <button type="button" data-social-tab="party">Party</button>
-      <button type="button" data-social-tab="clan">Clan</button>
-    </div>
-    <section class="systems-block">
-      <div class="meta-row"><span>Friends</span><strong>0 online</strong></div>
-      <div class="meta-row"><span>Party</span><strong>${party ? `${party.members.length} online` : 'None'}</strong></div>
-      <div class="meta-row"><span>Clan</span><strong>${clan ? `${escapeHTML(clan.tag)} ${escapeHTML(clan.name)}` : 'None'}</strong></div>
-      <div class="meta-row"><span>Target</span><strong>${party?.shared_target?.targetID ? escapeHTML(party.shared_target.targetID) : lockedValue()}</strong></div>
-    </section>
-    <section class="systems-block">
-      <div class="meta-row"><span>Friend List</span><strong>Unavailable</strong></div>
-      <div class="empty-line">No server-owned friends yet.</div>
-    </section>
-    <section class="systems-block">
-      <div class="meta-row"><span>Party Members</span><strong>${party ? party.members.length : lockedValue()}</strong></div>
+    <section class="systems-block social-tab-panel" role="tabpanel" data-social-panel="party">
+      <div class="meta-row"><span>Status</span><strong>${party ? `${party.members.length} online` : 'No party'}</strong></div>
+      <div class="meta-row"><span>Shared Target</span><strong>${party?.shared_target?.targetID ? escapeHTML(party.shared_target.targetID) : lockedValue()}</strong></div>
       ${
         party
           ? `<ul class="compact-list">
@@ -410,6 +452,7 @@ export function socialPanel(state: ClientState): string {
             </ul>`
           : '<div class="empty-line">No party.</div>'
       }
+      ${invite ? `<div class="meta-row"><span>Invite</span><strong>${escapeHTML(invite.partyID)}</strong></div>` : ''}
       ${invite ? `<button class="ghost-action" type="button" data-action="party-accept" data-invite-id="${escapeHTML(invite.inviteID)}" ${connected ? '' : 'disabled'}>Accept Invite</button>` : ''}
       <div class="social-form-row">
         <input data-social-field="party-invite" type="text" placeholder="Callsign" ${connected ? '' : 'disabled'} />
@@ -418,7 +461,15 @@ export function socialPanel(state: ClientState): string {
         <button class="ghost-action" type="button" data-action="party-leave" ${connected && party ? '' : 'disabled'}>Leave</button>
       </div>
     </section>
-    <section class="systems-block">
+  `;
+}
+
+function clanSocialTab(state: ClientState, connected: boolean): string {
+  const social = state.social;
+  const clan = social.clan;
+  return `
+    <section class="systems-block social-tab-panel" role="tabpanel" data-social-panel="clan">
+      <div class="meta-row"><span>Clan</span><strong>${clan ? `${escapeHTML(clan.tag)} ${escapeHTML(clan.name)}` : 'None'}</strong></div>
       <div class="meta-row"><span>Clan Members</span><strong>${clan ? social.clanMembers.length : lockedValue()}</strong></div>
       ${
         clan
