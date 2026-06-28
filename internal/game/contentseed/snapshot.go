@@ -90,7 +90,7 @@ func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
 	snapshot.Maps = rows.MapRows
 	snapshot.MapPortals = rows.MapPortalRows
 	snapshot.Items = appendMissingSnapshotRows(snapshot.Items, rows.ItemRows)
-	snapshot.Modules = appendMissingSnapshotRows(snapshot.Modules, rows.ModuleRows)
+	snapshot.Modules = replaceSnapshotRows(snapshot.Modules, rows.ModuleRows)
 	snapshot.Ships = appendMissingSnapshotRows(snapshot.Ships, rows.ShipRows)
 	if err := applyKalaazuStarterShipStats(snapshot, rows.ShipRows); err != nil {
 		return err
@@ -118,6 +118,29 @@ func appendMissingSnapshotRows(existing []content.SnapshotRow, candidates []cont
 			continue
 		}
 		seen[row.ContentID] = struct{}{}
+		out = append(out, row)
+	}
+	return out
+}
+
+func replaceSnapshotRows(existing []content.SnapshotRow, candidates []content.SnapshotRow) []content.SnapshotRow {
+	replacements := make(map[content.ContentID]content.SnapshotRow, len(candidates))
+	for _, row := range candidates {
+		replacements[row.ContentID] = row
+	}
+	out := make([]content.SnapshotRow, 0, len(existing)+len(candidates))
+	for _, row := range existing {
+		if replacement, ok := replacements[row.ContentID]; ok {
+			out = append(out, replacement)
+			delete(replacements, row.ContentID)
+			continue
+		}
+		out = append(out, row)
+	}
+	for _, row := range candidates {
+		if _, ok := replacements[row.ContentID]; !ok {
+			continue
+		}
 		out = append(out, row)
 	}
 	return out

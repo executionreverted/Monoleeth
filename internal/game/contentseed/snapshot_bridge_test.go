@@ -95,6 +95,18 @@ func TestDefaultSnapshotLegacyBridgeReportHasNoLootTableBridgeRows(t *testing.T)
 	}
 }
 
+func TestDefaultSnapshotLegacyBridgeReportDoesNotBridgeProjectedStarterModules(t *testing.T) {
+	report, err := DefaultSnapshotLegacyBridgeReport(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("DefaultSnapshotLegacyBridgeReport() error = %v, want nil", err)
+	}
+	for _, contentID := range []content.ContentID{"laser_alpha_t1", "shield_generator_t1"} {
+		if legacyBridgeReportHasRow(report, content.ContentTypeModule, contentID) {
+			t.Fatalf("bridge report contains module/%s, want Kalaazu compatibility projection", contentID)
+		}
+	}
+}
+
 func legacyBridgeReportHasRow(report []LegacyBridgeRow, contentType content.ContentType, contentID content.ContentID) bool {
 	for _, row := range report {
 		if row.ContentType == contentType && row.ContentID == contentID {

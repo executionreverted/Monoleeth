@@ -116,7 +116,10 @@ Implemented mapping rules:
   generator, and extra-slot values.
 - Modules: laser rows become offensive modules with `weapon_damage`; shield
   generator rows become defensive modules with `shield_max`; speed generator
-  rows become defensive generator modules with `speed`.
+  rows become defensive generator modules with `speed`. Starter compatibility
+  ids `laser_alpha_t1` and `shield_generator_t1` are projected from the
+  Kalaazu LF-1 and SG3N-A01 rows so existing starter/loadout contracts keep
+  working while their combat stats come from the default seed builder.
 - Shop: buyable Kalaazu rows become shop products and are classified as ship,
   module, or item products based on the rows imported above. Default snapshot
   shop products are fully Kalaazu-derived; local/static shop products remain
@@ -133,8 +136,8 @@ Implemented mapping rules:
   craft recipes, production buildings, quest templates/rewards, scanner config,
   starter config, route policy, production rules, and combat rules. Map shells,
   portals, NPC templates, spawn areas, enemy pools, NPC drop profiles, aggro
-  profiles, leash profiles, shop products, and loot tables must remain fully
-  Kalaazu-derived.
+  profiles, leash profiles, shop products, loot tables, and projected starter
+  laser/shield modules must remain fully Kalaazu-derived.
 
 This belongs to Phase 7 of:
 

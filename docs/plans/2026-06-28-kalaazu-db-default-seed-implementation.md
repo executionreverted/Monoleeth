@@ -48,6 +48,9 @@ Completed and committed:
 - Task 8 bridge reduction slice: default shop products are now replaced by
   Kalaazu buyable rows instead of appending to legacy shop rows. The bridge
   report fails if shop products regress to local/static rows.
+- Task 8 bridge reduction slice: starter compatibility module ids
+  `laser_alpha_t1` and `shield_generator_t1` are now projected from Kalaazu
+  LF-1 and SG3N-A01 rows while preserving existing starter/loadout item ids.
 
 Remaining before this plan is complete:
 

@@ -170,6 +170,7 @@ func mapStarterModuleRows(itemRows []DumpRow) ([]content.SnapshotRow, error) {
 		return nil, err
 	}
 	rows := make([]content.SnapshotRow, 0)
+	definitions := make(map[foundation.ItemID]modules.ModuleDefinition)
 	for _, source := range sources {
 		definition, ok, err := moduleDefinition(source)
 		if err != nil {
@@ -178,12 +179,18 @@ func mapStarterModuleRows(itemRows []DumpRow) ([]content.SnapshotRow, error) {
 		if !ok {
 			continue
 		}
+		definitions[definition.ItemID] = definition
 		row, err := snapshotRow(definition.ItemID.String(), definition)
 		if err != nil {
 			return nil, err
 		}
 		rows = append(rows, row)
 	}
+	compatibilityRows, err := starterCompatibilityModuleRows(definitions)
+	if err != nil {
+		return nil, err
+	}
+	rows = append(rows, compatibilityRows...)
 	return rows, nil
 }
 
@@ -230,6 +237,60 @@ func moduleDefinition(source mappedKalaazuItemSource) (modules.ModuleDefinition,
 		return modules.ModuleDefinition{}, false, err
 	}
 	return module, true, nil
+}
+
+func starterCompatibilityModuleRows(definitions map[foundation.ItemID]modules.ModuleDefinition) ([]content.SnapshotRow, error) {
+	compatibility := []struct {
+		sourceID foundation.ItemID
+		targetID foundation.ItemID
+		mutate   func(*modules.ModuleDefinition)
+	}{
+		{
+			sourceID: "equipment_weapon_laser_lf_1",
+			targetID: "laser_alpha_t1",
+			mutate: func(definition *modules.ModuleDefinition) {
+				definition.StatModifiers = append(definition.StatModifiers,
+					modules.StatModifier{Stat: modules.StatWeaponRange, Kind: modules.StatModifierFlat, Value: 650},
+					modules.StatModifier{Stat: modules.StatAccuracy, Kind: modules.StatModifierFlat, Value: 8_200},
+				)
+				definition.Energy = modules.EnergyProfile{ActivationCost: 8}
+				definition.Cooldowns = []modules.Cooldown{{Key: modules.CooldownBasicAttack, DurationMS: 1_200}}
+			},
+		},
+		{
+			sourceID: "equipment_generator_shield_sg3n_a01",
+			targetID: "shield_generator_t1",
+			mutate: func(definition *modules.ModuleDefinition) {
+				definition.StatModifiers = append(definition.StatModifiers,
+					modules.StatModifier{Stat: modules.StatShieldRegen, Kind: modules.StatModifierFlat, Value: 4},
+				)
+				definition.Energy = modules.EnergyProfile{Upkeep: 2}
+			},
+		},
+	}
+	rows := make([]content.SnapshotRow, 0, len(compatibility))
+	for _, projection := range compatibility {
+		source, ok := definitions[projection.sourceID]
+		if !ok {
+			return nil, fmt.Errorf("starter compatibility module source %q missing", projection.sourceID)
+		}
+		definition := source
+		definition.Source = catalog.VersionedDefinition{
+			DefinitionID: catalog.DefinitionID(projection.targetID.String()),
+			Version:      modules.ModuleCatalogVersion,
+		}
+		definition.ItemID = projection.targetID
+		projection.mutate(&definition)
+		if err := definition.Validate(); err != nil {
+			return nil, err
+		}
+		row, err := snapshotRow(definition.ItemID.String(), definition)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
 }
 
 func moduleTier(source kalaazuItemSource) int {

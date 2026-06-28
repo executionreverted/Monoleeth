@@ -39,8 +39,8 @@ func TestBuildStarterModuleRowsMapsKalaazuLasersShieldsAndSpeedGenerators(t *tes
 	if err != nil {
 		t.Fatalf("BuildStarterModuleRows() error = %v, want nil", err)
 	}
-	if got, want := len(rows), 16; got != want {
-		t.Fatalf("module rows = %d, want %d laser/shield/speed rows", got, want)
+	if got, want := len(rows), 18; got != want {
+		t.Fatalf("module rows = %d, want %d laser/shield/speed rows plus starter compatibility rows", got, want)
 	}
 
 	lf1 := requireModuleDefinitionForTest(t, rows, "equipment_weapon_laser_lf_1")
@@ -54,6 +54,22 @@ func TestBuildStarterModuleRowsMapsKalaazuLasersShieldsAndSpeedGenerators(t *tes
 	g3n := requireModuleDefinitionForTest(t, rows, "equipment_generator_speed_g3n_7900")
 	if g3n.SlotType != "defensive" || g3n.StatModifiers[0].Stat != modules.StatSpeed || g3n.StatModifiers[0].Value != 10 {
 		t.Fatalf("g3n module = %+v, want Kalaazu speed module", g3n)
+	}
+	starterLaser := requireModuleDefinitionForTest(t, rows, "laser_alpha_t1")
+	if starterLaser.Name != "LF-1" ||
+		moduleTestStatValue(starterLaser, modules.StatWeaponDamage) != 40 ||
+		moduleTestStatValue(starterLaser, modules.StatWeaponRange) != 650 ||
+		starterLaser.Energy.ActivationCost != 8 ||
+		len(starterLaser.Cooldowns) != 1 ||
+		starterLaser.Cooldowns[0].DurationMS != 1200 {
+		t.Fatalf("starter compatibility laser = %+v, want Kalaazu LF-1 projected onto starter contract", starterLaser)
+	}
+	starterShield := requireModuleDefinitionForTest(t, rows, "shield_generator_t1")
+	if starterShield.Name != "SG3N-A01" ||
+		moduleTestStatValue(starterShield, modules.StatShieldMax) != 1000 ||
+		moduleTestStatValue(starterShield, modules.StatShieldRegen) != 4 ||
+		starterShield.Energy.Upkeep != 2 {
+		t.Fatalf("starter compatibility shield = %+v, want Kalaazu SG3N-A01 projected onto starter contract", starterShield)
 	}
 }
 
@@ -132,4 +148,13 @@ func requireShopProductForTest(t *testing.T, rows []content.SnapshotRow, content
 	}
 	t.Fatalf("shop row %q missing", contentID)
 	return catalog.ShopProductDefinition{}
+}
+
+func moduleTestStatValue(definition modules.ModuleDefinition, stat modules.StatKey) int64 {
+	for _, modifier := range definition.StatModifiers {
+		if modifier.Stat == stat && modifier.Kind == modules.StatModifierFlat {
+			return modifier.Value
+		}
+	}
+	return 0
 }
