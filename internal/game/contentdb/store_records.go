@@ -653,6 +653,8 @@ var contentTableNames = map[content.ContentType]string{
 	content.ContentTypeModule:             "content_modules",
 	content.ContentTypeShip:               "content_ships",
 	content.ContentTypeShopProduct:        "content_shop_products",
+	content.ContentTypeMap:                "content_maps",
+	content.ContentTypeMapPortal:          "content_map_portals",
 	content.ContentTypeNPCTemplate:        "content_npc_templates",
 	content.ContentTypeSpawnArea:          "content_spawn_areas",
 	content.ContentTypeEnemyPool:          "content_enemy_pools",

@@ -1194,6 +1194,12 @@ Task 001 release proof must be rebuilt through
   and map every MVP pilot-skill effect into stat aggregation passive buckets,
   including combat, scanner/visibility, cargo, craft, construction, and route-capacity
   targets. Source: `docs/roadmap/03-progression-ships-modules-stats.md`.
+- [ ] Close the DarkOrbit-feel browser canary gaps found on 2026-06-28:
+  DB-seeded `1-3` reaches the map but does not expose live NPC density to the
+  browser canary, so NPC return fire is not yet proven there. Also tune or
+  isolate default-data kill/loot timing so a real browser canary can prove
+  loot without waiting on long Kalaazu HP/shield values. Source:
+  `client/tests/e2e/phase11-darkorbit-feel-flow.mjs`.
 - [x] Wire realtime gateway request handling to authenticated session and
   server-side player resolution. `realtime.Gateway` now decodes request
   envelopes, resolves `CommandContext` through a server-side session resolver,

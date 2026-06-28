@@ -25,12 +25,19 @@ Completed and committed:
 - Task 7 slice: runtime DB seeding now uses the Kalaazu default snapshot when
   content DB is enabled and empty; runtime still requires DB content unless a
   repository is explicitly injected.
+- Task 7 hardening slice: content DB now has `content_maps` and
+  `content_map_portals` draft tables, and the default starter config rewrites
+  its world seed to the first Kalaazu starter enemy pool instead of the legacy
+  `starter_training_drone_pool` reference.
 
 Remaining before this plan is complete:
 
 - Finish Task 8 hardening: reduce the default snapshot's dependence on the
   legacy static `DefaultGameplayContent` base rows or explicitly document every
   remaining base row as a temporary bridge.
+- Make DB-seeded non-starter maps visibly spawn their Kalaazu NPC pools in the
+  browser canary; `1-3` currently loads as a map but does not expose live NPCs
+  to `client/tests/e2e/phase11-darkorbit-feel-flow.mjs`.
 - Run Task 10 full verification, including `go test ./...`, client check, and
   `git diff --check`.
 - Speed generator rows are now mapped through `modules.StatSpeed`; remaining

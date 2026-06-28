@@ -54,11 +54,34 @@ func TestBuildMVPSnapshotUsesKalaazuStarterMapAndNPCRows(t *testing.T) {
 	if saimonPool.MapMaxAlive != 30 || saimonPool.PoolMaxAlive != 12 || saimonPool.InitialAlive != 4 {
 		t.Fatalf("saimon pool = %+v, want Kalaazu amount 30 scaled to 12/4", saimonPool)
 	}
+	starterPool := requireSeedEnemyPoolRow(t, snapshot.EnemyPools, "map_1_1", "streuner")
+	starterConfig := requireStarterConfigRow(t, snapshot.StarterConfigs)
+	if len(starterConfig.WorldSeeds) != 1 ||
+		starterConfig.WorldSeeds[0].MapID != starterPool.MapID ||
+		starterConfig.WorldSeeds[0].EnemyPoolID != starterPool.EnemyPoolID {
+		t.Fatalf("starter world seeds = %+v, want Kalaazu starter pool %+v", starterConfig.WorldSeeds, starterPool)
+	}
 
 	goliath := requireSeedShipRow(t, snapshot.Ships, "ship_goliath")
 	if goliath.BaseStats.HP != 256000 || goliath.Slots.Offensive != 15 || goliath.Slots.Defensive != 15 {
 		t.Fatalf("goliath = %+v, want Kalaazu ship stats", goliath)
 	}
+}
+
+func requireStarterConfigRow(t *testing.T, rows []content.SnapshotRow) content.StarterContent {
+	t.Helper()
+	for _, row := range rows {
+		if row.ContentID != "starter_config" {
+			continue
+		}
+		var starter content.StarterContent
+		if err := json.Unmarshal(row.DataJSON, &starter); err != nil {
+			t.Fatalf("starter config row %q json error = %v", row.ContentID, err)
+		}
+		return starter
+	}
+	t.Fatal("starter config row missing")
+	return content.StarterContent{}
 }
 
 func requireSeedMapRow(t *testing.T, rows []content.SnapshotRow, contentID content.ContentID) seedMapRow {
@@ -147,9 +170,10 @@ type seedNPCTemplateRow struct {
 }
 
 type seedEnemyPoolRow struct {
-	MapID        worldmaps.MapID `json:"map_id"`
-	NPCType      string          `json:"npc_type"`
-	MapMaxAlive  int             `json:"map_max_alive"`
-	PoolMaxAlive int             `json:"pool_max_alive"`
-	InitialAlive int             `json:"initial_alive"`
+	MapID        worldmaps.MapID       `json:"map_id"`
+	EnemyPoolID  worldmaps.EnemyPoolID `json:"enemy_pool_id"`
+	NPCType      string                `json:"npc_type"`
+	MapMaxAlive  int                   `json:"map_max_alive"`
+	PoolMaxAlive int                   `json:"pool_max_alive"`
+	InitialAlive int                   `json:"initial_alive"`
 }

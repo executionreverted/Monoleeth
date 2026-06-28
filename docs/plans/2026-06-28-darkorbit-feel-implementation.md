@@ -10,6 +10,28 @@
 
 ---
 
+## Progress 2026-06-28
+
+Completed and committed before this update:
+
+- Realtime combat engagement contract, server-owned attack stance, client HUD
+  stance feedback, and focused Go/client tests.
+- Kalaazu DB default seed slices required for the browser feel gate, including
+  map/portal/NPC/item/ship/module/shop rows and runtime DB-first seeding.
+
+Current browser canary slice:
+
+- Added `client/tests/e2e/phase11-darkorbit-feel-flow.mjs` and
+  `npm run e2e:darkorbit-feel`.
+- The canary boots a real Postgres content DB, publishes the Kalaazu default
+  snapshot, registers a real browser account, proves minimized
+  `combat.start_attack`, observes server shot cadence while moving, travels
+  `1-1 -> 1-2 -> 1-3`, captures a desktop screenshot, and scans smoke state,
+  WebSocket frames, and process logs for hidden/fake data tokens.
+- It intentionally does not yet claim the full Task 8 script. Live `1-3` NPC
+  density/return-fire and fast default-data kill/loot proof remain open follow-up
+  work.
+
 ## Phase 0: Guardrails
 
 ### Task 0.1: Record The Implementation Boundary
