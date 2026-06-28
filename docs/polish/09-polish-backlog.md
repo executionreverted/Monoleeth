@@ -27,6 +27,15 @@ This pass does not own:
 - factions/companies
 - broad endgame balance
 
+## Live Playtest Note
+
+The 2026-06-28 two-pilot local playtest closed a real stability blocker: the
+authenticated gameplay WebSocket no longer drops after 30 idle seconds. That
+does not close the product-feel gap. Human feedback after the fix was still
+that the build lacks a convincing game feel, so the backlog below remains
+focused on moment-to-moment combat readability, sector density, upgrade hunger,
+and a less web-app-like HUD.
+
 ## P0: Combat Becomes A Loop
 
 ### P0.1 Server-Owned Attack Stance

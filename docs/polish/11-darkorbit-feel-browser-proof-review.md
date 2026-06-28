@@ -35,6 +35,9 @@ Date: 2026-06-28
 
 ## What Still Hurt The DarkOrbit Feel
 
+- Live human playtest feedback after the transport fixes was still blunt:
+  stability improved, movement/chat worked, but the build still did not feel
+  like a game yet.
 - The HUD still reads more like a dense web cockpit than a combat-first space
   MMO interface.
 - Prime mobile space is crowded by management panels; a true mobile tactical
@@ -57,3 +60,9 @@ Date: 2026-06-28
   treated as auth expiry on the client. Only the server's explicit
   `session invalid` close reason now clears auth; slow-client policy closes can
   reconnect instead of wiping authenticated gameplay state.
+- The live two-pilot playtest exposed a separate 30-second idle WebSocket drop:
+  persistent gameplay sockets were using the same bounded timeout shape as
+  individual reads. Commit `3011c783` makes the default read side wait
+  indefinitely while preserving bounded writes and slow-client queue drops.
+  Manual canaries proved 45 seconds idle plus chat and a longer idle run that
+  stayed connected through minute 6 before the tester intentionally stopped it.
