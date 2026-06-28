@@ -65,6 +65,9 @@ Completed and committed:
   `radar_t1`, and `cargo_expander_t1` plus their item rows are now projected
   from Kalaazu G-RL1, AI-R1, and G3X-CRGO-X rows while preserving existing
   starter/loadout contracts.
+- Task 8 bridge reduction slice: `starter_config` is now emitted by the
+  Kalaazu default row builder, with the first Kalaazu starter enemy pool and
+  Phoenix starter display projected into existing account/session contracts.
 
 Remaining before this plan is complete:
 

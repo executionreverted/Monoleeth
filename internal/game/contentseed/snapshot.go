@@ -69,23 +69,19 @@ func appendCoreRows(snapshot *content.Snapshot, bundle content.GameplayContent) 
 	if err := appendMapNPCRows(snapshot, bundle); err != nil {
 		return err
 	}
-	if err := applyKalaazuStarterRows(snapshot); err != nil {
-		return err
-	}
-	if err := appendServerRuleRows(snapshot, bundle); err != nil {
-		return err
-	}
-	if err := applyKalaazuStarterConfigRows(snapshot); err != nil {
-		return err
-	}
-	return nil
-}
-
-func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
-	rows, err := kalaazu.BuildDefaultRows(kalaazu.DefaultSeedFS())
+	kalaazuRows, err := kalaazu.BuildDefaultRows(kalaazu.DefaultSeedFS())
 	if err != nil {
 		return err
 	}
+	applyKalaazuStarterRows(snapshot, kalaazuRows)
+	if err := appendServerRuleRows(snapshot, bundle); err != nil {
+		return err
+	}
+	applyKalaazuStarterConfigRows(snapshot, kalaazuRows)
+	return nil
+}
+
+func applyKalaazuStarterRows(snapshot *content.Snapshot, rows kalaazu.DefaultRows) {
 	snapshot.Maps = rows.MapRows
 	snapshot.MapPortals = rows.MapPortalRows
 	snapshot.Items = replaceSnapshotRows(snapshot.Items, rows.ItemRows)
@@ -100,7 +96,6 @@ func applyKalaazuStarterRows(snapshot *content.Snapshot) error {
 	snapshot.NPCAggroProfiles = rows.NPCAggroRows
 	snapshot.NPCLeashProfiles = rows.NPCLeashRows
 	snapshot.NPCEventSpawns = nil
-	return nil
 }
 
 func appendMissingSnapshotRows(existing []content.SnapshotRow, candidates []content.SnapshotRow) []content.SnapshotRow {
@@ -142,36 +137,8 @@ func replaceSnapshotRows(existing []content.SnapshotRow, candidates []content.Sn
 	return out
 }
 
-func applyKalaazuStarterConfigRows(snapshot *content.Snapshot) error {
-	if len(snapshot.StarterConfigs) == 0 || len(snapshot.EnemyPools) == 0 {
-		return nil
-	}
-	var pool struct {
-		MapID       worldmaps.MapID       `json:"map_id"`
-		EnemyPoolID worldmaps.EnemyPoolID `json:"enemy_pool_id"`
-	}
-	if err := json.Unmarshal(snapshot.EnemyPools[0].DataJSON, &pool); err != nil {
-		return fmt.Errorf("kalaazu starter enemy pool row: %w", err)
-	}
-	if pool.MapID == "" || pool.EnemyPoolID == "" {
-		return fmt.Errorf("kalaazu starter enemy pool row missing map or pool id")
-	}
-	var starter content.StarterContent
-	if err := json.Unmarshal(snapshot.StarterConfigs[0].DataJSON, &starter); err != nil {
-		return fmt.Errorf("starter config row: %w", err)
-	}
-	starter.BalanceProfileID = "kalaazu_default_seed_v1"
-	starter.BalanceProfileNote = "Default content DB seed derived from Kalaazu starter reference rows; legacy starter ship id keeps existing loadout contracts while ship stats use Kalaazu Phoenix values."
-	starter.WorldSeeds = []content.WorldSeedContent{{
-		MapID:       pool.MapID,
-		EnemyPoolID: pool.EnemyPoolID,
-	}}
-	row, err := newSnapshotRow(string(snapshot.StarterConfigs[0].ContentID), starter)
-	if err != nil {
-		return err
-	}
-	snapshot.StarterConfigs[0] = row
-	return nil
+func applyKalaazuStarterConfigRows(snapshot *content.Snapshot, rows kalaazu.DefaultRows) {
+	snapshot.StarterConfigs = rows.StarterConfigRows
 }
 
 func appendServerRuleRows(snapshot *content.Snapshot, bundle content.GameplayContent) error {

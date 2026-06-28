@@ -1,10 +1,13 @@
 package kalaazu
 
 import (
+	"encoding/json"
+	"fmt"
 	"io/fs"
 	"strconv"
 
 	"gameproject/internal/game/content"
+	worldmaps "gameproject/internal/game/world/maps"
 )
 
 type ImportReport struct {
@@ -14,20 +17,21 @@ type ImportReport struct {
 }
 
 type DefaultRows struct {
-	MapRows         []content.SnapshotRow
-	MapPortalRows   []content.SnapshotRow
-	ItemRows        []content.SnapshotRow
-	ModuleRows      []content.SnapshotRow
-	ShipRows        []content.SnapshotRow
-	ShopProductRows []content.SnapshotRow
-	LootTableRows   []content.SnapshotRow
-	NPCTemplateRows []content.SnapshotRow
-	SpawnAreaRows   []content.SnapshotRow
-	EnemyPoolRows   []content.SnapshotRow
-	NPCDropRows     []content.SnapshotRow
-	NPCAggroRows    []content.SnapshotRow
-	NPCLeashRows    []content.SnapshotRow
-	Report          ImportReport
+	MapRows           []content.SnapshotRow
+	MapPortalRows     []content.SnapshotRow
+	ItemRows          []content.SnapshotRow
+	ModuleRows        []content.SnapshotRow
+	ShipRows          []content.SnapshotRow
+	ShopProductRows   []content.SnapshotRow
+	LootTableRows     []content.SnapshotRow
+	NPCTemplateRows   []content.SnapshotRow
+	SpawnAreaRows     []content.SnapshotRow
+	EnemyPoolRows     []content.SnapshotRow
+	NPCDropRows       []content.SnapshotRow
+	NPCAggroRows      []content.SnapshotRow
+	NPCLeashRows      []content.SnapshotRow
+	StarterConfigRows []content.SnapshotRow
+	Report            ImportReport
 }
 
 func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
@@ -63,23 +67,56 @@ func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
 	if err != nil {
 		return DefaultRows{}, err
 	}
+	starterConfigRows, err := mapStarterConfigRows(npcRows.EnemyPools)
+	if err != nil {
+		return DefaultRows{}, err
+	}
 	rows := DefaultRows{
-		MapRows:         mapRows.MapRows,
-		MapPortalRows:   mapRows.PortalRows,
-		ItemRows:        itemRows,
-		ModuleRows:      moduleRows,
-		ShipRows:        shipRows,
-		ShopProductRows: shopRows,
-		LootTableRows:   lootRows,
-		NPCTemplateRows: npcRows.NPCTemplates,
-		SpawnAreaRows:   npcRows.SpawnAreas,
-		EnemyPoolRows:   npcRows.EnemyPools,
-		NPCDropRows:     npcRows.NPCDropProfiles,
-		NPCAggroRows:    npcRows.NPCAggroProfiles,
-		NPCLeashRows:    npcRows.NPCLeashProfiles,
+		MapRows:           mapRows.MapRows,
+		MapPortalRows:     mapRows.PortalRows,
+		ItemRows:          itemRows,
+		ModuleRows:        moduleRows,
+		ShipRows:          shipRows,
+		ShopProductRows:   shopRows,
+		LootTableRows:     lootRows,
+		NPCTemplateRows:   npcRows.NPCTemplates,
+		SpawnAreaRows:     npcRows.SpawnAreas,
+		EnemyPoolRows:     npcRows.EnemyPools,
+		NPCDropRows:       npcRows.NPCDropProfiles,
+		NPCAggroRows:      npcRows.NPCAggroProfiles,
+		NPCLeashRows:      npcRows.NPCLeashProfiles,
+		StarterConfigRows: starterConfigRows,
 	}
 	rows.Report = buildImportReport(source, rows)
 	return rows, nil
+}
+
+func mapStarterConfigRows(enemyPoolRows []content.SnapshotRow) ([]content.SnapshotRow, error) {
+	if len(enemyPoolRows) == 0 {
+		return nil, fmt.Errorf("starter config enemy pools empty: %w", ErrMalformedDumpSQL)
+	}
+	var pool struct {
+		MapID       worldmaps.MapID       `json:"map_id"`
+		EnemyPoolID worldmaps.EnemyPoolID `json:"enemy_pool_id"`
+	}
+	if err := json.Unmarshal(enemyPoolRows[0].DataJSON, &pool); err != nil {
+		return nil, fmt.Errorf("starter config enemy pool row: %w", err)
+	}
+	if pool.MapID == "" || pool.EnemyPoolID == "" {
+		return nil, fmt.Errorf("starter config enemy pool row missing map or pool id: %w", ErrMalformedDumpSQL)
+	}
+	starter := content.DefaultStarterContent()
+	starter.BalanceProfileID = "kalaazu_default_seed_v1"
+	starter.BalanceProfileNote = "Default content DB seed derived from Kalaazu starter reference rows; legacy starter ship id keeps existing loadout contracts while ship stats use Kalaazu Phoenix values."
+	starter.WorldSeeds = []content.WorldSeedContent{{
+		MapID:       pool.MapID,
+		EnemyPoolID: pool.EnemyPoolID,
+	}}
+	row, err := snapshotRow("starter_config", starter)
+	if err != nil {
+		return nil, err
+	}
+	return []content.SnapshotRow{row}, nil
 }
 
 type defaultSourceRows struct {
@@ -150,6 +187,7 @@ func buildImportReport(source defaultSourceRows, rows DefaultRows) ImportReport 
 			content.ContentTypeNPCDropProfile:  len(rows.NPCDropRows),
 			content.ContentTypeNPCAggroProfile: len(rows.NPCAggroRows),
 			content.ContentTypeNPCLeashProfile: len(rows.NPCLeashRows),
+			content.ContentTypeStarterConfig:   len(rows.StarterConfigRows),
 		},
 		UnsupportedItems: unsupportedItemCounts(source.Items),
 	}

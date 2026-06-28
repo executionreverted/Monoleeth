@@ -79,6 +79,7 @@ func kalaazuDefaultRowIDs(rows kalaazu.DefaultRows) map[content.ContentType]map[
 	add(content.ContentTypeNPCDropProfile, rows.NPCDropRows)
 	add(content.ContentTypeNPCAggroProfile, rows.NPCAggroRows)
 	add(content.ContentTypeNPCLeashProfile, rows.NPCLeashRows)
+	add(content.ContentTypeStarterConfig, rows.StarterConfigRows)
 	return out
 }
 
@@ -103,8 +104,6 @@ func legacyBridgeReason(contentType content.ContentType, contentID content.Conte
 		return "Local quest reward bridge; selected Kalaazu dumps do not include quest reward rows.", true
 	case content.ContentTypeScannerConfig:
 		return "Local scanner config bridge; selected Kalaazu dumps do not include scanner tuning rows.", true
-	case content.ContentTypeStarterConfig:
-		return "Local starter config bridge with Kalaazu starter pool and Phoenix display projected into existing account/session contracts.", true
 	case content.ContentTypeRoutePolicy:
 		return "Local route policy bridge; selected Kalaazu dumps do not include automation route rules.", true
 	case content.ContentTypeProductionRules:
